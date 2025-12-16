@@ -2,7 +2,45 @@ import tkinter as tk
 from tkinter import font
 
 # TODO: maybe implement single index for cursor position instead of (x, y)
-# Scrolling and copy paste, undo redo
+# INPUT LAYER:
+# Scrolling and copy paste, undo redo, mouse support
+# TEXT LAYOUT LAYER:
+# Line wrapping 
+# Syntax highlighting, bidi text, complex scripts
+
+
+# RENDERING LAYER:
+# Smooth scrolling, hardware acceleration
+# Plugin system for rendering (eg. minimap, line numbers, etc.)
+
+
+# Document model layer:
+# Efficient data structures for text storage and manipulation
+# Multiple documents/tabs support
+# File I/O operations
+# Integration with external tools (e.g., linters, formatters)
+
+
+# User interface layer:
+# Menus, toolbars, status bars
+# Customizable themes and settings
+# Search and replace functionality
+# Collaboration features (real-time editing with others)
+
+
+# Performance optimizations:
+# Lazy rendering, caching mechanisms
+# Profiling and benchmarking tools
+# Testing framework for editor features
+
+# Accessibility features:
+# Keyboard navigation, screen reader support
+# High contrast themes, adjustable font sizes
+# Internationalization and localization support
+
+# Plugin architecture:
+# API for third-party extensions
+
 
 
 class CustomEditor(tk.Frame):
@@ -11,7 +49,9 @@ class CustomEditor(tk.Frame):
         
         # --- canvas ---
         self.canvas = tk.Canvas(self, width=600, height=200, bg="white")
-        self.canvas.pack()
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.canvas.bind("<Configure>", self.on_canvas_resize)
+        
         
         # --- font & metrics ---
         self.editor_font = font.Font(family="Courier New", size=16)
@@ -34,8 +74,10 @@ class CustomEditor(tk.Frame):
         
         # --- bindings ---
         self.bind_all("<Key>", self.on_key)
-        
+                
+        # --- initial setup ---
         self.text = self.parse_text()
+        self.trailing_line()
         
         # initial draw
         self.render()
@@ -43,9 +85,10 @@ class CustomEditor(tk.Frame):
     def parse_text(self):
         # split text into lines based on newline characters
         lines = self.text.split("\n")
-        for line in lines:
-            print(line)
         return lines
+    
+    def on_canvas_resize(self, event):
+        self.render()
 
         
     def draw_debug_baselines(self):
@@ -66,21 +109,6 @@ class CustomEditor(tk.Frame):
         
     def render(self):
         self.canvas.delete("all")
-        # max_y = self.top_padding + self.ascent
-        # debug baselines
-        # self.canvas.create_line(
-        #     0, self.baseline_y, 600, self.baseline_y, fill="#dddddd"
-        # )
-        # self.canvas.create_line(
-        #     0, self.top_padding + self.line_height,
-        #     600, self.top_padding + self.line_height,
-        #     fill="#dddddd"
-        # )
-        # self.canvas.create_line(
-        #     0, self.top_padding + self.ascent,
-        #     600, self.top_padding + self.ascent,
-        #     fill="#dddddd"
-        # )
         
         # text
         y = self.top_padding + self.ascent
@@ -107,20 +135,20 @@ class CustomEditor(tk.Frame):
     def move_cursor(self, direction: str): #TODO handle line joins and splits and go back to previous line on left at x=0
         if direction == "left":
             self.cursor_pos_x -= 1
-            self.normalize_cursor_position(self.text[self.cursor_pos_y])
+            self.normalize_cursor_position()
             self.preferred_cursor_x = self.cursor_pos_x
         elif direction == "right":
             self.cursor_pos_x += 1
-            self.normalize_cursor_position(self.text[self.cursor_pos_y])
+            self.normalize_cursor_position()
             self.preferred_cursor_x = self.cursor_pos_x
         elif direction == "down":
             self.cursor_pos_y += 1
-            self.normalize_cursor_position(self.text[self.cursor_pos_y], use_preferred=True)
+            self.normalize_cursor_position(use_preferred=True)
         elif direction == "up":
             self.cursor_pos_y -= 1
-            self.normalize_cursor_position(self.text[self.cursor_pos_y], use_preferred=True)
+            self.normalize_cursor_position(use_preferred=True)
         
-    def normalize_cursor_position(self, line: str, use_preferred: bool = False):
+    def normalize_cursor_position(self, use_preferred: bool = False):
         '''
         check x,y cursor position and adjust if out of bounds
         left: x > 0 , update preferred x
@@ -132,18 +160,25 @@ class CustomEditor(tk.Frame):
         Preferred column
         Set cursor_x = min(preferred_x, line_length) on vertical movements
         '''
-        # x = self.cursor_pos_x
-        # y = self.cursor_pos_y
+       
+        # Vertical bounds
+        self.cursor_pos_y = max(self.cursor_pos_y, 0)
+        self.cursor_pos_y = min(self.cursor_pos_y, len(self.text) - 1)   
+        
+        line = self.text[self.cursor_pos_y]
         
         # Horizontal bounds
         if use_preferred:
             self.cursor_pos_x = min(self.preferred_cursor_x, len(line))
         else:
             self.cursor_pos_x = max(self.cursor_pos_x, 0)
-            self.cursor_pos_x = min(self.cursor_pos_x, len(line))
-        
-        # Vertical bounds    
+            self.cursor_pos_x = min(self.cursor_pos_x, len(line))      
         return
+    
+    def trailing_line(self):
+        if self.text[-1] != "":
+            self.text.append("")  # ensure there's an empty line at the end for new text
+            
         
     def on_key(self, event): #Input handler
         if event.keysym in ("Left", "Right", "Up", "Down"): #TODO A lookup table
@@ -168,6 +203,7 @@ class CustomEditor(tk.Frame):
                         + event.char
                         + line[self.cursor_pos_x :]
                     )
+            self.trailing_line()
             self.move_cursor("right")
             self.render()
             return "break"
@@ -190,5 +226,6 @@ class CustomEditor(tk.Frame):
 # --- basic window ---
 root = tk.Tk()
 editor = CustomEditor(root)
+editor.pack(fill=tk.BOTH, expand=True) # expand frame to fill window
 editor.pack()
 root.mainloop()
