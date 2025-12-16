@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import font
 
 # TODO: maybe implement single index for cursor position instead of (x, y)
+# Scrolling and copy paste, undo redo
+
 
 class CustomEditor(tk.Frame):
     def __init__(self, master):
@@ -102,7 +104,7 @@ class CustomEditor(tk.Frame):
             cursor_x, cursor_y + self.ascent + self.descent,
             fill="black",
         )
-    def move_cursor(self, direction: str):
+    def move_cursor(self, direction: str): #TODO handle line joins and splits and go back to previous line on left at x=0
         if direction == "left":
             self.cursor_pos_x -= 1
             self.normalize_cursor_position(self.text[self.cursor_pos_y])
@@ -170,7 +172,7 @@ class CustomEditor(tk.Frame):
             self.render()
             return "break"
         
-        if event.keysym == "BackSpace" and self.cursor_pos_x > 0:
+        if event.keysym == "BackSpace" and self.cursor_pos_x > 0: #TODO handle line joins
             for i, line in enumerate(self.text):
                 if i == self.cursor_pos_y:
                     self.text[i] = (
@@ -180,6 +182,9 @@ class CustomEditor(tk.Frame):
             self.move_cursor("left")
             self.render()
             return "break"  
+        
+        if event.keysym == "Return":
+            pass
 
 
 # --- basic window ---
