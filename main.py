@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import font
+from enum import Enum, auto
 
 # TODO: maybe implement single index for cursor position instead of (x, y)
 # INPUT LAYER:
@@ -41,8 +42,14 @@ from tkinter import font
 # Plugin architecture:
 # API for third-party extensions
 
-
-
+class Direction(Enum):
+    LEFT = auto()
+    RIGHT = auto()
+    UP = auto()
+    DOWN = auto()
+    LINE_START = auto()
+    LINE_END = auto()
+    
 class CustomEditor(tk.Frame):
     def __init__(self, master):
         super().__init__(master)
@@ -62,7 +69,7 @@ class CustomEditor(tk.Frame):
 
         # --- document state ---
         self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n"
-        self.cursor_pos_x = 5  # position of the cursor in the text
+        self.cursor_pos_x = 0  # position of the cursor in the text
         self.cursor_pos_y = 0
         self.preferred_cursor_x = self.cursor_pos_x  # for vertical movements
         
@@ -90,7 +97,6 @@ class CustomEditor(tk.Frame):
     def on_canvas_resize(self, event):
         self.render()
 
-        
     def draw_debug_baselines(self):
         # debug baselines
         self.canvas.create_line(
@@ -132,40 +138,48 @@ class CustomEditor(tk.Frame):
             cursor_x, cursor_y + self.ascent + self.descent,
             fill="black",
         )
-    def move_cursor(self, direction: str): #TODO handle line joins and splits and go back to previous line on left at x=0
-        if direction == "left":
-            self.cursor_pos_x -= 1
+        
+    def move_cursor(self, direction: Direction):
+        if direction == Direction.LEFT:
+            if self.cursor_pos_x > 0:
+                self.cursor_pos_x -= 1
+            elif self.cursor_pos_x == 0 and self.cursor_pos_y > 0:
+                self.cursor_pos_y -= 1
+                self.cursor_pos_x = len(self.text[self.cursor_pos_y])
             self.normalize_cursor_position()
             self.preferred_cursor_x = self.cursor_pos_x
-        elif direction == "right":
-            self.cursor_pos_x += 1
+        elif direction == Direction.RIGHT:
+            if self.cursor_pos_x == len(self.text[self.cursor_pos_y]):
+                self.cursor_pos_y += 1
+                self.cursor_pos_x = 0
+            else: 
+                self.cursor_pos_x += 1
             self.normalize_cursor_position()
             self.preferred_cursor_x = self.cursor_pos_x
-        elif direction == "down":
-            self.cursor_pos_y += 1
-            self.normalize_cursor_position(use_preferred=True)
-        elif direction == "up":
+        elif direction == Direction.UP:
             self.cursor_pos_y -= 1
             self.normalize_cursor_position(use_preferred=True)
-        
+        elif direction == Direction.DOWN:
+            self.cursor_pos_y += 1
+            self.normalize_cursor_position(use_preferred=True)
+        elif direction == Direction.LINE_START:
+            self.cursor_pos_x = 0
+            self.normalize_cursor_position()
+            self.preferred_cursor_x = self.cursor_pos_x
+        elif direction == Direction.LINE_END:
+            print("LINE END")
+            line = self.text[self.cursor_pos_y]
+            self.cursor_pos_x = len(line)
+            print(self.cursor_pos_x, line)
+            self.normalize_cursor_position()
+            self.preferred_cursor_x = self.cursor_pos_x
+
     def normalize_cursor_position(self, use_preferred: bool = False):
-        '''
-        check x,y cursor position and adjust if out of bounds
-        left: x > 0 , update preferred x
-        right: x <= line length , update preferred x
-        
-        up: y > 0                                  
-        down: y < number of lines - 1 (start by 0) 
-        
-        Preferred column
-        Set cursor_x = min(preferred_x, line_length) on vertical movements
-        '''
-       
         # Vertical bounds
         self.cursor_pos_y = max(self.cursor_pos_y, 0)
         self.cursor_pos_y = min(self.cursor_pos_y, len(self.text) - 1)   
         
-        line = self.text[self.cursor_pos_y]
+        line = self.text[self.cursor_pos_y] # current line after vertical normalization to avoid index errors
         
         # Horizontal bounds
         if use_preferred:
@@ -173,25 +187,22 @@ class CustomEditor(tk.Frame):
         else:
             self.cursor_pos_x = max(self.cursor_pos_x, 0)
             self.cursor_pos_x = min(self.cursor_pos_x, len(line))      
-        return
     
     def trailing_line(self):
         if self.text[-1] != "":
             self.text.append("")  # ensure there's an empty line at the end for new text
             
-        
     def on_key(self, event): #Input handler
-        if event.keysym in ("Left", "Right", "Up", "Down"): #TODO A lookup table
-            if event.keysym == "Left":
-                self.move_cursor("left")
-            elif event.keysym == "Right":
-                self.move_cursor("right")
-            elif event.keysym == "Up": 
-                self.move_cursor("up")
-            elif event.keysym == "Down": 
-                self.move_cursor("down")
-            else:
-                return
+        movement_keys = {
+            "Left": Direction.LEFT,
+            "Right": Direction.RIGHT,
+            "Up": Direction.UP,
+            "Down": Direction.DOWN,
+            "Home": Direction.LINE_START,
+            "End": Direction.LINE_END
+        }
+        if event.keysym in movement_keys:
+            self.move_cursor(movement_keys[event.keysym])
             self.render()
             return "break"
         
@@ -204,24 +215,44 @@ class CustomEditor(tk.Frame):
                         + line[self.cursor_pos_x :]
                     )
             self.trailing_line()
-            self.move_cursor("right")
+            self.move_cursor(Direction.RIGHT)
             self.render()
             return "break"
         
-        if event.keysym == "BackSpace" and self.cursor_pos_x > 0: #TODO handle line joins
+        if event.keysym == "BackSpace":
+            text_after_cursor = ""
+            if self.cursor_pos_x > 0:
+                for i, line in enumerate(self.text):
+                    if i == self.cursor_pos_y:
+                        text_after_cursor = line[self.cursor_pos_x :]
+                        self.text[i] = (
+                            line[: self.cursor_pos_x - 1] + line[self.cursor_pos_x :]
+                        )                        
+            elif self.cursor_pos_x == 0:
+                text_after_cursor = self.text[self.cursor_pos_y][self.cursor_pos_x :]
+                for i, line in enumerate(self.text):
+                    if i == self.cursor_pos_y:
+                        self.text.pop(i)
+            self.move_cursor(Direction.LEFT)
             for i, line in enumerate(self.text):
                 if i == self.cursor_pos_y:
                     self.text[i] = (
-                        line[: self.cursor_pos_x - 1]
-                        + line[self.cursor_pos_x :]
+                        line + text_after_cursor
                     )
-            self.move_cursor("left")
             self.render()
             return "break"  
         
         if event.keysym == "Return":
-            pass
-
+            for i,line in enumerate(self.text):
+                if i == self.cursor_pos_y:
+                    new_line = line[self.cursor_pos_x :]
+                    self.text[i] = line[: self.cursor_pos_x]
+                    self.text.insert(i + 1, new_line)
+            self.move_cursor(Direction.DOWN)
+            self.move_cursor(Direction.LINE_START)
+            self.render()
+            return "break"
+            
 
 # --- basic window ---
 root = tk.Tk()
