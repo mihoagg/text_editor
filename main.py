@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import font
 
+# TODO: implement single index for cursor position instead of (x, y)
+
 class CustomEditor(tk.Frame):
     def __init__(self, master):
         super().__init__(master)
@@ -17,14 +19,15 @@ class CustomEditor(tk.Frame):
         self.descent = self.editor_font.metrics("descent")
 
         # --- document state ---
-        self.text = "Hello, custom editor!"
-        self.cursor_pos = 5  # position of the cursor in the text
+        self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n"
+        self.cursor_pos_x = 5  # position of the cursor in the text
+        self.cursor_pos_y = 0
         
         # --- layout constants ---
         self.left_padding = 10
         self.top_padding = 20
         self.baseline_y = self.top_padding + self.ascent - self.descent # baseline position accounting for tkinter anchor
-        
+        # self.max_lines = 1  # first line
         
         # --- bindings ---
         self.bind_all("<Key>", self.on_key)
@@ -32,9 +35,7 @@ class CustomEditor(tk.Frame):
         # initial draw
         self.render()
         
-    def render(self):
-        self.canvas.delete("all")
-        
+    def draw_debug_baselines(self):
         # debug baselines
         self.canvas.create_line(
             0, self.baseline_y, 600, self.baseline_y, fill="#dddddd"
@@ -50,30 +51,59 @@ class CustomEditor(tk.Frame):
             fill="#dddddd"
         )
         
+    def render(self):
+        self.canvas.delete("all")
+        max_y = self.top_padding + self.ascent
+        # debug baselines
+        # self.canvas.create_line(
+        #     0, self.baseline_y, 600, self.baseline_y, fill="#dddddd"
+        # )
+        # self.canvas.create_line(
+        #     0, self.top_padding + self.line_height,
+        #     600, self.top_padding + self.line_height,
+        #     fill="#dddddd"
+        # )
+        # self.canvas.create_line(
+        #     0, self.top_padding + self.ascent,
+        #     600, self.top_padding + self.ascent,
+        #     fill="#dddddd"
+        # )
+        
         # text
+        x = self.left_padding
+        y = self.top_padding + self.ascent
         for i, ch in enumerate(self.text):
-            x = self.left_padding + i * self.char_width
-            y = self.top_padding + self.ascent
-            self.canvas.create_text(
-                x, y,
-                text=ch,
-                font=self.editor_font,
-                anchor="sw"
-            )
-            
+            if ch == "\n":
+                y += self.line_height
+                x = self.left_padding
+                continue
+            else:
+                self.canvas.create_text(
+                    x, y,
+                    text=ch,
+                    font=self.editor_font,
+                    anchor="sw"
+                )
+                x += self.char_width
+        
         # cursor
-        cursor_x = self.left_padding + self.cursor_pos * self.char_width
+        cursor_x = self.left_padding + self.cursor_pos_x * self.char_width
+        cursor_y = self.top_padding - self.descent + self.cursor_pos_y * self.line_height
         self.canvas.create_line(
-            cursor_x, self.baseline_y - self.ascent,
-            cursor_x, self.baseline_y + self.descent,
+            cursor_x, cursor_y,
+            cursor_x, cursor_y + self.ascent + self.descent,
             fill="black",
         )
     def on_key(self, event):
         if event.keysym in ("Left", "Right", "Up", "Down"):
-            if event.keysym == "Left" and self.cursor_pos > 0:
-                self.cursor_pos -= 1
-            elif event.keysym == "Right" and self.cursor_pos < len(self.text):
-                self.cursor_pos += 1
+            if event.keysym == "Left" and self.cursor_pos_x > 0:
+                self.cursor_pos_x -= 1
+            elif event.keysym == "Right" and self.cursor_pos_x < len(self.text):
+                self.cursor_pos_x += 1
+            elif event.keysym == "Up":
+                self.cursor_pos_y -= 1
+            elif event.keysym == "Down":
+                self.cursor_pos_y += 1
             else:
                 return
             self.render()
@@ -81,20 +111,20 @@ class CustomEditor(tk.Frame):
             
         if event.char.isprintable():
             self.text = (
-                self.text[: self.cursor_pos]
+                self.text[: self.cursor_pos_x]
                 + event.char
-                + self.text[self.cursor_pos :]
+                + self.text[self.cursor_pos_x :]
             )
-            self.cursor_pos += 1
+            self.cursor_pos_x += 1
             self.render()
             return "break"
         
-        if event.keysym == "BackSpace" and self.cursor_pos > 0:
+        if event.keysym == "BackSpace" and self.cursor_pos_x > 0:
             self.text = (
-                self.text[: self.cursor_pos - 1]
-                + self.text[self.cursor_pos :]
+                self.text[: self.cursor_pos_x - 1]
+                + self.text[self.cursor_pos_x :]
             )
-            self.cursor_pos -= 1
+            self.cursor_pos_x -= 1
             self.render()
             return "break"  
 
