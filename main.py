@@ -2,7 +2,19 @@ import tkinter as tk
 from tkinter import font
 from enum import Enum, auto
 
-# TODO: maybe implement single index for cursor position instead of (x, y)
+# TODO: 
+# clipboard support, ctrl cvax
+# text highlight
+# undo redo stack
+# mouse support for cursor movement and text selection
+# scrolling
+# i/o
+# maybe single index for cursor position instead of (x, y)
+
+
+
+
+# wishlist / future features:
 # INPUT LAYER:
 # Scrolling and copy paste, undo redo, mouse support
 # TEXT LAYOUT LAYER:
@@ -58,6 +70,7 @@ class CustomEditor(tk.Frame):
         self.canvas = tk.Canvas(self, width=600, height=200, bg="white")
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.bind("<Configure>", self.on_canvas_resize)
+        self.canvas.bind("<MouseWheel>", self.on_mousewheel)
         
         
         # --- font & metrics ---
@@ -68,7 +81,7 @@ class CustomEditor(tk.Frame):
         self.descent = self.editor_font.metrics("descent")
 
         # --- document state ---
-        self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n"
+        self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n\na\nb\nc\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na"
         self.cursor_pos_x = 0  # position of the cursor in the text
         self.cursor_pos_y = 0
         self.preferred_cursor_x = self.cursor_pos_x  # for vertical movements
@@ -77,7 +90,20 @@ class CustomEditor(tk.Frame):
         self.left_padding = 10
         self.top_padding = 20
         self.baseline_y = self.top_padding + self.ascent - self.descent # baseline position accounting for tkinter anchor
-        # self.max_lines = 1  # first line
+
+        # --- scroll state ---
+        '''
+        viewport, content, scrollbar
+        scroll position, scroll offset (scroll_y), render offset, clamp to content size
+        
+        mayber overscan
+        
+        '''
+        self.scroll_y = 0  # vertical scroll offset
+        self.first_visible_line = 0  
+        self.visible_line_count = 0 
+        self.overscan_lines = 3
+        
         
         # --- bindings ---
         self.bind_all("<Key>", self.on_key)
@@ -85,16 +111,79 @@ class CustomEditor(tk.Frame):
         # --- initial setup ---
         self.text = self.parse_text()
         self.trailing_line()
+        self.calculate_visible_lines()
         
         # initial draw
         self.render()
         
+    def calculate_visible_lines(self): #TODO fix
+        view_top = self.scroll_y
+        view_bottom = self.scroll_y + self.canvas.winfo_height()
+        self.first_visible_line = view_top // self.line_height
+        self.last_visible_line = (view_bottom + self.line_height - 1) // self.line_height  # exclusive - 1 to make inclusive
+        print("before overscan:", self.first_visible_line, self.last_visible_line)
+        print("last line", self.text[self.last_visible_line])
+        
+        
+        
+        # self.first_visible_line = (self.scroll_y + self.top_padding) // self.line_height
+        # self.last_visible_line = (self.scroll_y + self.canvas.winfo_height() - self.top_padding + self.line_height - 1) // self.line_height -1 # exclusive - 1 to make inclusive
+        # print("before overscan:", self.first_visible_line, self.last_visible_line)
+        # print("last line", self.text[self.last_visible_line])
+        
+        
+        #clamp to bounds
+        # self.first_visible_line = max(0, self.first_visible_line - self.overscan_lines)
+        # self.last_visible_line = min(len(self.text), self.last_visible_line + self.overscan_lines)
+        #visible line count
+        self.visible_line_count = self.last_visible_line - self.first_visible_line
+        
+    def draw_debug_scrollline(self): #TODO fix
+        # Convert line indices to canvas Y coordinates
+        y_start = (
+            self.first_visible_line * self.line_height
+            - self.scroll_y
+            + self.top_padding
+        )
+        y_end = (
+            (self.last_visible_line + 1) * self.line_height
+            - self.scroll_y
+            + self.top_padding
+        )
+
+        # Draw a vertical debug line on the left side
+        self.canvas.create_line(
+            self.left_padding, y_start,
+            self.left_padding, y_end - self.descent,
+            fill="red",
+            width=2,
+            tags="debug"
+        )
+        
+        #draw a horizontal line at the last line
+        self.canvas.create_line(
+            0, y_end,
+            600, y_end,
+            fill="blue",
+            width=2,
+            tags="debug"
+        )
+        
+        self.canvas.create_line(
+            0, y_start,
+            600, y_end,
+            fill="blue",
+            width=2,
+            tags="debug"
+        )
+    
     def parse_text(self):
         # split text into lines based on newline characters
         lines = self.text.split("\n")
         return lines
     
     def on_canvas_resize(self, event):
+        self.calculate_visible_lines()
         self.render()
 
     def draw_debug_baselines(self):
@@ -112,10 +201,14 @@ class CustomEditor(tk.Frame):
             600, self.top_padding + self.ascent,
             fill="#dddddd"
         )
-        
+    
+    def trailing_line(self):
+        if self.text[-1] != "":
+            self.text.append("")  # ensure there's an empty line at the end for new text    
+    
     def render(self):
         self.canvas.delete("all")
-        
+        self.draw_debug_scrollline()
         # text
         y = self.top_padding + self.ascent
         for line in self.text:
@@ -138,7 +231,9 @@ class CustomEditor(tk.Frame):
             cursor_x, cursor_y + self.ascent + self.descent,
             fill="black",
         )
-        
+    
+    
+    # cursor movement
     def move_cursor(self, direction: Direction):
         if direction == Direction.LEFT:
             if self.cursor_pos_x > 0:
@@ -188,10 +283,8 @@ class CustomEditor(tk.Frame):
             self.cursor_pos_x = max(self.cursor_pos_x, 0)
             self.cursor_pos_x = min(self.cursor_pos_x, len(line))      
     
-    def trailing_line(self):
-        if self.text[-1] != "":
-            self.text.append("")  # ensure there's an empty line at the end for new text
-            
+    
+    # input handling        
     def on_key(self, event): #Input handler
         movement_keys = {
             "Left": Direction.LEFT,
@@ -240,7 +333,10 @@ class CustomEditor(tk.Frame):
                         line + text_after_cursor
                     )
             self.render()
-            return "break"  
+            return "break"
+        
+        if event.keysym == "Delete":
+            pass
         
         if event.keysym == "Return":
             for i,line in enumerate(self.text):
@@ -253,6 +349,23 @@ class CustomEditor(tk.Frame):
             self.render()
             return "break"
             
+    # mouse wheel scrolling
+    def on_mousewheel(self, event):
+        if event.delta:
+            self.move_scroll(-1 * (event.delta // 120) * self.line_height) 
+            self.render()
+            return "break"
+        
+    def move_scroll(self, delta_y: int):
+        self.scroll_y += delta_y
+        self.scroll_y = max(0, self.scroll_y)
+        max_scroll = max(0, len(self.text) * self.line_height - self.canvas.winfo_height())
+        self.scroll_y = min(self.scroll_y, max_scroll)
+        self.calculate_visible_lines()  
+        # print("scroll_y:", self.scroll_y)
+        # print("first visible line:", self.first_visible_line)
+        # print("last visible line:", self.last_visible_line)
+        # print("visible line count:", self.visible_line_count) 
 
 # --- basic window ---
 root = tk.Tk()
