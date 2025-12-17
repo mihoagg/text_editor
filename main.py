@@ -3,11 +3,13 @@ from tkinter import font
 from enum import Enum, auto
 
 # TODO: 
+# scroll when moving cursor out of view
 # clipboard support, ctrl cvax
 # text highlight
 # undo redo stack
 # mouse support for cursor movement and text selection
-# scrolling
+# scrolbar
+# cursor renders on top padding
 # i/o
 # maybe single index for cursor position instead of (x, y)
 
@@ -81,7 +83,7 @@ class CustomEditor(tk.Frame):
         self.descent = self.editor_font.metrics("descent")
 
         # --- document state ---
-        self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n\na\nb\nc\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na"
+        self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n\na\nb\nc\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\nend"
         self.cursor_pos_x = 0  # position of the cursor in the text
         self.cursor_pos_y = 0
         self.preferred_cursor_x = self.cursor_pos_x  # for vertical movements
@@ -102,7 +104,7 @@ class CustomEditor(tk.Frame):
         self.scroll_y = 0  # vertical scroll offset
         self.line_start_index = 0  
         self.visible_line_count = 0 
-        self.overscan_lines = 3
+        self.overscan_lines = 2
         
         
         # --- bindings ---
@@ -116,7 +118,7 @@ class CustomEditor(tk.Frame):
         # initial draw
         self.render()
         
-    def calculate_visible_lines(self): #TODO fix
+    def calculate_visible_lines(self): 
         view_top = self.scroll_y
         view_bottom = self.scroll_y + self.canvas.winfo_height()
         self.line_start_index = view_top // self.line_height
@@ -125,13 +127,13 @@ class CustomEditor(tk.Frame):
         # print("last line", self.text[self.line_end_index -1])
                 
         #clamp to bounds
-        # self.line_start_index = max(0, self.line_start_index - self.overscan_lines)
-        # self.line_end_index = min(len(self.text), self.line_end_index + self.overscan_lines)
+        self.line_start_index = max(0, self.line_start_index - self.overscan_lines)
+        self.line_end_index = min(len(self.text), self.line_end_index + self.overscan_lines)
         
         #visible line count
         self.visible_line_count = self.line_end_index - self.line_start_index - 1 #inclusive
         
-    def draw_debug_scrollline(self): #TODO fix
+    def draw_debug_scrollline(self): 
         # Convert line indices to canvas Y coordinates
         y_start = (
             self.line_start_index * self.line_height
@@ -224,20 +226,6 @@ class CustomEditor(tk.Frame):
                 x += self.char_width
             y += self.line_height
                     
-                            
-        # y = self.top_padding + self.ascent
-        # for line in self.text:
-        #     x = self.left_padding
-        #     for ch in line:
-        #         self.canvas.create_text(
-        #             x, y,
-        #             text=ch,
-        #             font=self.editor_font,
-        #             anchor="sw"
-        #         )
-        #         x += self.char_width
-        #     y += self.line_height
-        
         # cursor
         cursor_x = self.left_padding + self.cursor_pos_x * self.char_width
         cursor_y = self.top_padding - self.descent + self.cursor_pos_y * self.line_height - self.scroll_y
