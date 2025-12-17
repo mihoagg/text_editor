@@ -73,6 +73,7 @@ class CustomEditor(tk.Frame):
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.bind("<Configure>", self.on_canvas_resize)
         self.canvas.bind("<MouseWheel>", self.on_mousewheel)
+        self.canvas.bind("<Button-1>", self.on_left_click_debug)
         
         
         # --- font & metrics ---
@@ -84,9 +85,9 @@ class CustomEditor(tk.Frame):
 
         # --- document state ---
         self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n\na\nb\nc\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\nend"
-        self.cursor_pos_x = 0  # position of the cursor in the text
-        self.cursor_pos_y = 0
-        self.preferred_cursor_x = self.cursor_pos_x  # for vertical movements
+        self.cursor_x_index = 0  # position of the cursor in the text
+        self.cursor_y_index = 0
+        self.preferred_cursor_x = self.cursor_x_index  # for vertical movements
         
         # --- layout constants ---
         self.left_padding = 10
@@ -103,6 +104,7 @@ class CustomEditor(tk.Frame):
         '''
         self.scroll_y = 0  # vertical scroll offset
         self.line_start_index = 0  
+        self.line_end_index = 0
         self.visible_line_count = 0 
         self.overscan_lines = 2
         
@@ -175,6 +177,14 @@ class CustomEditor(tk.Frame):
             tags="debug"
         )
     
+    def draw_debug_frame(self):
+        self.canvas.create_rectangle(
+            self.left_padding,
+            self.line_start_index * self.line_height - self.scroll_y + self.top_padding - self.descent,
+            600,
+            (self.line_end_index - 1) * self.line_height - self.scroll_y + self.top_padding,
+        )
+    
     def parse_text(self):
         # split text into lines based on newline characters
         lines = self.text.split("\n")
@@ -209,7 +219,8 @@ class CustomEditor(tk.Frame):
         
         # debug lines
         # self.draw_debug_baselines()
-        #self.draw_debug_scrollline()
+        # self.draw_debug_scrollline()
+        # self.draw_debug_frame()
         
         
         # text
@@ -227,8 +238,8 @@ class CustomEditor(tk.Frame):
             y += self.line_height
                     
         # cursor
-        cursor_x = self.left_padding + self.cursor_pos_x * self.char_width
-        cursor_y = self.top_padding - self.descent + self.cursor_pos_y * self.line_height - self.scroll_y
+        cursor_x = self.left_padding + self.cursor_x_index * self.char_width
+        cursor_y = self.top_padding - self.descent + self.cursor_y_index * self.line_height - self.scroll_y
         self.canvas.create_line(
             cursor_x, cursor_y,
             cursor_x, cursor_y + self.ascent + self.descent,
@@ -239,52 +250,69 @@ class CustomEditor(tk.Frame):
     # cursor movement
     def move_cursor(self, direction: Direction):
         if direction == Direction.LEFT:
-            if self.cursor_pos_x > 0:
-                self.cursor_pos_x -= 1
-            elif self.cursor_pos_x == 0 and self.cursor_pos_y > 0:
-                self.cursor_pos_y -= 1
-                self.cursor_pos_x = len(self.text[self.cursor_pos_y])
+            if self.cursor_x_index > 0:
+                self.cursor_x_index -= 1
+            elif self.cursor_x_index == 0 and self.cursor_y_index > 0:
+                self.cursor_y_index -= 1
+                self.cursor_x_index = len(self.text[self.cursor_y_index])
             self.normalize_cursor_position()
-            self.preferred_cursor_x = self.cursor_pos_x
+            self.preferred_cursor_x = self.cursor_x_index
         elif direction == Direction.RIGHT:
-            if self.cursor_pos_x == len(self.text[self.cursor_pos_y]):
-                self.cursor_pos_y += 1
-                self.cursor_pos_x = 0
+            if self.cursor_x_index == len(self.text[self.cursor_y_index]):
+                self.cursor_y_index += 1
+                self.cursor_x_index = 0
             else: 
-                self.cursor_pos_x += 1
+                self.cursor_x_index += 1
             self.normalize_cursor_position()
-            self.preferred_cursor_x = self.cursor_pos_x
+            self.preferred_cursor_x = self.cursor_x_index
         elif direction == Direction.UP:
-            self.cursor_pos_y -= 1
+            self.cursor_y_index -= 1
             self.normalize_cursor_position(use_preferred=True)
         elif direction == Direction.DOWN:
-            self.cursor_pos_y += 1
+            self.cursor_y_index += 1
             self.normalize_cursor_position(use_preferred=True)
         elif direction == Direction.LINE_START:
-            self.cursor_pos_x = 0
+            self.cursor_x_index = 0
             self.normalize_cursor_position()
-            self.preferred_cursor_x = self.cursor_pos_x
+            self.preferred_cursor_x = self.cursor_x_index
         elif direction == Direction.LINE_END:
-            line = self.text[self.cursor_pos_y]
-            self.cursor_pos_x = len(line)
-            print(self.cursor_pos_x, line)
+            line = self.text[self.cursor_y_index]
+            self.cursor_x_index = len(line)
             self.normalize_cursor_position()
-            self.preferred_cursor_x = self.cursor_pos_x
+            self.preferred_cursor_x = self.cursor_x_index
+        #cursor debug
+        # cursor_y = self.top_padding - self.descent + self.cursor_y_index * self.line_height - self.scroll_y
+        # print("cursor_y:", cursor_y)
+        self.keep_cursor_in_view()
 
     def normalize_cursor_position(self, use_preferred: bool = False):
         # Vertical bounds
-        self.cursor_pos_y = max(self.cursor_pos_y, 0)
-        self.cursor_pos_y = min(self.cursor_pos_y, len(self.text) - 1)   
+        self.cursor_y_index = max(self.cursor_y_index, 0)
+        self.cursor_y_index = min(self.cursor_y_index, len(self.text) - 1)   
         
-        line = self.text[self.cursor_pos_y] # current line after vertical normalization to avoid index errors
+        line = self.text[self.cursor_y_index] # current line after vertical normalization to avoid index errors
         
         # Horizontal bounds
         if use_preferred:
-            self.cursor_pos_x = min(self.preferred_cursor_x, len(line))
+            self.cursor_x_index = min(self.preferred_cursor_x, len(line))
         else:
-            self.cursor_pos_x = max(self.cursor_pos_x, 0)
-            self.cursor_pos_x = min(self.cursor_pos_x, len(line))      
+            self.cursor_x_index = max(self.cursor_x_index, 0)
+            self.cursor_x_index = min(self.cursor_x_index, len(line))      
     
+    def keep_cursor_in_view(self):
+        view_top_y = 0
+        view_bottom_y =self.canvas.winfo_height()
+        cursor_y = self.top_padding - self.descent + self.cursor_y_index * self.line_height - self.scroll_y
+        scroll_offset = 0
+        if cursor_y < view_top_y:  
+            scroll_offset = view_top_y - cursor_y
+            self.move_scroll(-scroll_offset)
+        if cursor_y + self.line_height > view_bottom_y:
+            scroll_offset = (cursor_y + self.line_height) - view_bottom_y
+            self.move_scroll(scroll_offset)
+        # implement scroll adjustment, measure how much out of view to scroll by
+        
+        
     
     # input handling        
     def on_key(self, event):
@@ -303,11 +331,11 @@ class CustomEditor(tk.Frame):
         
         if event.char.isprintable() and len(event.char) == 1:
             for i, line in enumerate(self.text):
-                if i == self.cursor_pos_y:
+                if i == self.cursor_y_index:
                     self.text[i] = (
-                        line[: self.cursor_pos_x]
+                        line[: self.cursor_x_index]
                         + event.char
-                        + line[self.cursor_pos_x :]
+                        + line[self.cursor_x_index :]
                     )
             self.trailing_line()
             self.move_cursor(Direction.RIGHT)
@@ -316,21 +344,21 @@ class CustomEditor(tk.Frame):
         
         if event.keysym == "BackSpace":
             text_after_cursor = ""
-            if self.cursor_pos_x > 0:
+            if self.cursor_x_index > 0:
                 for i, line in enumerate(self.text):
-                    if i == self.cursor_pos_y:
-                        text_after_cursor = line[self.cursor_pos_x :]
+                    if i == self.cursor_y_index:
+                        text_after_cursor = line[self.cursor_x_index :]
                         self.text[i] = (
-                            line[: self.cursor_pos_x - 1] + line[self.cursor_pos_x :]
+                            line[: self.cursor_x_index - 1] + line[self.cursor_x_index :]
                         )                        
-            elif self.cursor_pos_x == 0:
-                text_after_cursor = self.text[self.cursor_pos_y][self.cursor_pos_x :]
+            elif self.cursor_x_index == 0:
+                text_after_cursor = self.text[self.cursor_y_index][self.cursor_x_index :]
                 for i, line in enumerate(self.text):
-                    if i == self.cursor_pos_y:
+                    if i == self.cursor_y_index:
                         self.text.pop(i)
             self.move_cursor(Direction.LEFT)
             for i, line in enumerate(self.text):
-                if i == self.cursor_pos_y:
+                if i == self.cursor_y_index:
                     self.text[i] = (
                         line + text_after_cursor
                     )
@@ -342,9 +370,9 @@ class CustomEditor(tk.Frame):
         
         if event.keysym == "Return":
             for i,line in enumerate(self.text):
-                if i == self.cursor_pos_y:
-                    new_line = line[self.cursor_pos_x :]
-                    self.text[i] = line[: self.cursor_pos_x]
+                if i == self.cursor_y_index:
+                    new_line = line[self.cursor_x_index :]
+                    self.text[i] = line[: self.cursor_x_index]
                     self.text.insert(i + 1, new_line)
             self.move_cursor(Direction.DOWN)
             self.move_cursor(Direction.LINE_START)
@@ -365,10 +393,23 @@ class CustomEditor(tk.Frame):
         max_scroll = max(0, len(self.text) * self.line_height - self.canvas.winfo_height())
         self.scroll_y = min(self.scroll_y, max_scroll)
         self.calculate_visible_lines()  
+        
+        #cursor debug
+        # cursor_y = self.top_padding - self.descent + self.cursor_y_index * self.line_height - self.scroll_y
+        # print("cursor_y:", cursor_y)
+        
         # print("scroll_y:", self.scroll_y)
         # print("first visible line:", self.first_visible_line)
         # print("last visible line:", self.last_visible_line)
         # print("visible line count:", self.visible_line_count) 
+        
+    # mouse debugging
+    def on_left_click_debug(self, event):
+        print("click at:", event.x, event.y)
+        if event.y >= self.line_start_index * self.line_height - self.scroll_y + self.top_padding and event.y <= (self.line_end_index - 1) * self.line_height - self.scroll_y + self.top_padding:
+            print("within rendered lines")
+        else:
+            print("outside rendered lines")
 
 # --- basic window ---
 root = tk.Tk()
