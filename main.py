@@ -3,14 +3,16 @@ from tkinter import font
 from enum import Enum, auto
 
 # TODO: 
-# scroll when moving cursor out of view
+# line wrapping
 # clipboard support, ctrl cvax
 # text highlight
 # undo redo stack
 # mouse support for cursor movement and text selection
 # scrolbar
-# cursor renders on top padding
 # i/o
+# scroll when moving cursor out of view DONE
+# cursor renders on top padding DONE
+
 # maybe single index for cursor position instead of (x, y)
 
 
@@ -27,6 +29,7 @@ from enum import Enum, auto
 # RENDERING LAYER:
 # Smooth scrolling, hardware acceleration
 # Plugin system for rendering (eg. minimap, line numbers, etc.)
+# Syntax Highlighting
 
 
 # Document model layer:
