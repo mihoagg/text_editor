@@ -100,7 +100,7 @@ class CustomEditor(tk.Frame):
         
         '''
         self.scroll_y = 0  # vertical scroll offset
-        self.first_visible_line = 0  
+        self.line_start_index = 0  
         self.visible_line_count = 0 
         self.overscan_lines = 3
         
@@ -119,42 +119,38 @@ class CustomEditor(tk.Frame):
     def calculate_visible_lines(self): #TODO fix
         view_top = self.scroll_y
         view_bottom = self.scroll_y + self.canvas.winfo_height()
-        self.first_visible_line = view_top // self.line_height
-        self.last_visible_line = (view_bottom + self.line_height - 1) // self.line_height  # exclusive - 1 to make inclusive
-        print("before overscan:", self.first_visible_line, self.last_visible_line)
-        print("last line", self.text[self.last_visible_line])
-        
-        
-        
-        # self.first_visible_line = (self.scroll_y + self.top_padding) // self.line_height
-        # self.last_visible_line = (self.scroll_y + self.canvas.winfo_height() - self.top_padding + self.line_height - 1) // self.line_height -1 # exclusive - 1 to make inclusive
-        # print("before overscan:", self.first_visible_line, self.last_visible_line)
-        # print("last line", self.text[self.last_visible_line])
-        
-        
+        self.line_start_index = view_top // self.line_height
+        self.line_end_index = (view_bottom + self.line_height - 1) // self.line_height #First line outside viewport
+        # print("before overscan:", self.line_start_index, self.line_end_index)
+        # print("last line", self.text[self.line_end_index -1])
+                
         #clamp to bounds
-        # self.first_visible_line = max(0, self.first_visible_line - self.overscan_lines)
-        # self.last_visible_line = min(len(self.text), self.last_visible_line + self.overscan_lines)
+        # self.line_start_index = max(0, self.line_start_index - self.overscan_lines)
+        # self.line_end_index = min(len(self.text), self.line_end_index + self.overscan_lines)
+        
         #visible line count
-        self.visible_line_count = self.last_visible_line - self.first_visible_line
+        self.visible_line_count = self.line_end_index - self.line_start_index - 1 #inclusive
         
     def draw_debug_scrollline(self): #TODO fix
         # Convert line indices to canvas Y coordinates
         y_start = (
-            self.first_visible_line * self.line_height
+            self.line_start_index * self.line_height
             - self.scroll_y
             + self.top_padding
+            + self.ascent
         )
+        
         y_end = (
-            (self.last_visible_line + 1) * self.line_height
+            (self.line_end_index - 1) * self.line_height
             - self.scroll_y
-            + self.top_padding
+            - self.line_height
+            + self.baseline_y
         )
 
         # Draw a vertical debug line on the left side
         self.canvas.create_line(
             self.left_padding, y_start,
-            self.left_padding, y_end - self.descent,
+            self.left_padding, y_end,
             fill="red",
             width=2,
             tags="debug"
@@ -208,12 +204,17 @@ class CustomEditor(tk.Frame):
     
     def render(self):
         self.canvas.delete("all")
-        self.draw_debug_scrollline()
+        
+        # debug lines
+        # self.draw_debug_baselines()
+        #self.draw_debug_scrollline()
+        
+        
         # text
-        y = self.top_padding + self.ascent
-        for line in self.text:
+        y = self.top_padding + self.ascent + (self.line_start_index * self.line_height) - self.scroll_y
+        for line in range(self.line_start_index, self.line_end_index):
             x = self.left_padding
-            for ch in line:
+            for ch in self.text[line]:
                 self.canvas.create_text(
                     x, y,
                     text=ch,
@@ -222,10 +223,24 @@ class CustomEditor(tk.Frame):
                 )
                 x += self.char_width
             y += self.line_height
+                    
+                            
+        # y = self.top_padding + self.ascent
+        # for line in self.text:
+        #     x = self.left_padding
+        #     for ch in line:
+        #         self.canvas.create_text(
+        #             x, y,
+        #             text=ch,
+        #             font=self.editor_font,
+        #             anchor="sw"
+        #         )
+        #         x += self.char_width
+        #     y += self.line_height
         
         # cursor
         cursor_x = self.left_padding + self.cursor_pos_x * self.char_width
-        cursor_y = self.top_padding - self.descent + self.cursor_pos_y * self.line_height
+        cursor_y = self.top_padding - self.descent + self.cursor_pos_y * self.line_height - self.scroll_y
         self.canvas.create_line(
             cursor_x, cursor_y,
             cursor_x, cursor_y + self.ascent + self.descent,
@@ -262,7 +277,6 @@ class CustomEditor(tk.Frame):
             self.normalize_cursor_position()
             self.preferred_cursor_x = self.cursor_pos_x
         elif direction == Direction.LINE_END:
-            print("LINE END")
             line = self.text[self.cursor_pos_y]
             self.cursor_pos_x = len(line)
             print(self.cursor_pos_x, line)
@@ -285,7 +299,7 @@ class CustomEditor(tk.Frame):
     
     
     # input handling        
-    def on_key(self, event): #Input handler
+    def on_key(self, event):
         movement_keys = {
             "Left": Direction.LEFT,
             "Right": Direction.RIGHT,
@@ -299,7 +313,7 @@ class CustomEditor(tk.Frame):
             self.render()
             return "break"
         
-        if event.char.isprintable():
+        if event.char.isprintable() and len(event.char) == 1:
             for i, line in enumerate(self.text):
                 if i == self.cursor_pos_y:
                     self.text[i] = (
@@ -354,6 +368,7 @@ class CustomEditor(tk.Frame):
         if event.delta:
             self.move_scroll(-1 * (event.delta // 120) * self.line_height) 
             self.render()
+            # print("mousewheel moved and rendered")
             return "break"
         
     def move_scroll(self, delta_y: int):
