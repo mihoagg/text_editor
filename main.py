@@ -5,11 +5,12 @@ from enum import Enum, auto
 
 
 # TODO: 
-# line wrapping
+# split input and delete into document layer
+# mouse support for cursor movement and text selection
+# # line wrapping
 # clipboard support, ctrl cvax
 # text highlight
 # undo redo stack
-# mouse support for cursor movement and text selection
 # scrolbar
 # i/o
 # scroll when moving cursor out of view DONE
@@ -115,6 +116,7 @@ class CustomEditor(tk.Frame):
     def on_canvas_resize(self, event):
         self.ctx.scroll.calculate_visible_lines()
         self.ctx.renderer.render()
+        print("canvas resized")
 
 class Renderer:
     def __init__(self, ctx: EditorContext):
@@ -210,7 +212,7 @@ class DocumentModel:
             self.normalize_cursor_position()
             self.preferred_cursor_x = self.cursor_x_index
         elif direction == Direction.LINE_END:
-            line = self.text[self.cursor_y_index]
+            line = self.lines[self.cursor_y_index]
             self.cursor_x_index = len(line)
             self.normalize_cursor_position()
             self.preferred_cursor_x = self.cursor_x_index
@@ -299,36 +301,38 @@ class InputManager:
         if event.char.isprintable() and len(event.char) == 1:
             for i, line in enumerate(self.ctx.document.lines):
                 if i == self.ctx.document.cursor_y_index:
-                    self.text[i] = (
+                    self.ctx.document.lines[i] = (
                         line[: self.ctx.document.cursor_x_index]
                         + event.char
                         + line[self.ctx.document.cursor_x_index :]
                     )
             self.ctx.document.trailing_line()
             self.ctx.document.move_cursor(Direction.RIGHT)
-            self.render()
+            self.ctx.renderer.render()
             return "break"
         
-        if event.keysym == "BackSpace":
+        if event.keysym == "BackSpace": #TODO: currently broken when at the end, create a new delete function inside document
             text_after_cursor = ""
             if self.ctx.document.cursor_x_index > 0:
-                for i, line in enumerate(self.ctx.document.text):
-                    if i == self.ctx.document.cursor_y_index:
-                        text_after_cursor = line[self.ctx.document.cursor_x_index :]
-                        self.ctx.document.lines[i] = (
-                            line[: self.ctx.document.cursor_x_index - 1] + line[self.ctx.document.cursor_x_index :]
-                        )                        
-            elif self.ctx.document.cursor_x_index == 0:
-                text_after_cursor = self.ctx.document.lines[self.ctx.document.cursor_y_index][self.ctx.document.cursor_x_index :]
-                for i, line in enumerate(self.ctx.document.lines):
-                    if i == self.ctx.document.cursor_y_index:
-                        self.ctx.document.lines.pop(i)
-            self.ctx.document.move_cursor(Direction.LEFT)
-            for i, line in enumerate(self.text):
-                if i == self.ctx.document.cursor_y_index:
-                    self.ctx.document.lines[i] = (
-                        line + text_after_cursor
-                    )
+                current_line = self.ctx.document.lines[self.ctx.document.cursor_y_index]
+                text_after_cursor = current_line[self.ctx.document.cursor_x_index :]
+                self.ctx.document.lines[self.ctx.document.cursor_y_index] = (
+                    current_line[: self.ctx.document.cursor_x_index - 1] + current_line[self.ctx.document.cursor_x_index :]
+                )
+                self.ctx.document.move_cursor(Direction.LEFT)
+                
+            elif self.ctx.document.cursor_x_index == 0 and self.ctx.document.cursor_y_index > 0:
+                # merge lines
+                previous_line = self.ctx.document.lines[self.ctx.document.cursor_y_index - 1]
+                text_after_cursor = self.ctx.document.lines[self.ctx.document.cursor_y_index]
+                previous_line = previous_line + text_after_cursor
+                #move cursor
+                self.ctx.document.move_cursor(Direction.LEFT)
+                #update buffer
+                self.ctx.document.lines[self.ctx.document.cursor_y_index] = previous_line
+                #delete line
+                self.ctx.document.lines.pop(self.ctx.document.cursor_y_index + 1)
+                
             self.ctx.renderer.render()
             return "break"
         
