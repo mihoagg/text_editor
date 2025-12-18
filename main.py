@@ -1,6 +1,8 @@
+from __future__ import annotations
 import tkinter as tk
 from tkinter import font
 from enum import Enum, auto
+
 
 # TODO: 
 # line wrapping
@@ -12,6 +14,10 @@ from enum import Enum, auto
 # i/o
 # scroll when moving cursor out of view DONE
 # cursor renders on top padding DONE
+
+# modularize:
+# maybe split render to draw_text and draw_cursor
+# split on_key to movement, insertion, backspace return...
 
 # maybe single index for cursor position instead of (x, y)
 
@@ -59,6 +65,15 @@ from enum import Enum, auto
 # Plugin architecture:
 # API for third-party extensions
 
+
+class EditorContext:
+    def __init__(self):
+        self.canvas = None
+        self.renderer = None
+        self.document = None
+        self.scroll = None
+        self.input = None
+        
 class Direction(Enum):
     LEFT = auto()
     RIGHT = auto()
@@ -66,18 +81,44 @@ class Direction(Enum):
     DOWN = auto()
     LINE_START = auto()
     LINE_END = auto()
-    
+
 class CustomEditor(tk.Frame):
     def __init__(self, master):
         super().__init__(master)
         
         # --- canvas ---
-        self.canvas = tk.Canvas(self, width=600, height=200, bg="white")
+        self.canvas = tk.Canvas(self, width=600, height=400, bg="white")
         self.canvas.pack(fill=tk.BOTH, expand=True)
-        self.canvas.bind("<Configure>", self.on_canvas_resize)
-        self.canvas.bind("<MouseWheel>", self.on_mousewheel)
-        self.canvas.bind("<Button-1>", self.on_left_click_debug)
         
+        # --- components ---
+        self.ctx = EditorContext()
+        self.ctx.renderer = Renderer(self.ctx)
+        self.ctx.document = DocumentModel(self.ctx)
+        self.ctx.scroll = ScrollManager(self.ctx)
+        self.ctx.input = InputManager(self.ctx)
+        self.ctx.canvas = self.canvas
+        
+        # --- bindings ---
+        self.canvas.bind("<Configure>", self.on_canvas_resize)
+        self.canvas.bind("<MouseWheel>", self.ctx.input.on_mousewheel)
+        self.bind_all("<Key>", self.ctx.input.on_key)
+        
+        # --- bindings ---
+        #self.bind_all("<Key>", self.on_key)
+        
+        # initial set up
+        self.ctx.document.lines = self.ctx.document.parse_text()
+        self.ctx.document.trailing_line()
+        self.ctx.scroll.calculate_visible_lines()
+        self.ctx.renderer.render()
+
+    def on_canvas_resize(self, event):
+        self.ctx.scroll.calculate_visible_lines()
+        self.ctx.renderer.render()
+
+class Renderer:
+    def __init__(self, ctx: EditorContext):
+        self.ctx = ctx
         
         # --- font & metrics ---
         self.editor_font = font.Font(family="Courier New", size=16)
@@ -85,153 +126,18 @@ class CustomEditor(tk.Frame):
         self.line_height = self.editor_font.metrics("linespace")
         self.ascent = self.editor_font.metrics("ascent")
         self.descent = self.editor_font.metrics("descent")
-
-        # --- document state ---
-        self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n\na\nb\nc\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\nend"
-        self.cursor_x_index = 0  # position of the cursor in the text
-        self.cursor_y_index = 0
-        self.preferred_cursor_x = self.cursor_x_index  # for vertical movements
-        
+                
         # --- layout constants ---
         self.left_padding = 10
         self.top_padding = 20
-        self.baseline_y = self.top_padding + self.ascent - self.descent # baseline position accounting for tkinter anchor
-
-        # --- scroll state ---
-        '''
-        viewport, content, scrollbar
-        scroll position, scroll offset (scroll_y), render offset, clamp to content size
         
-        mayber overscan
-        
-        '''
-        self.scroll_y = 0  # vertical scroll offset
-        self.line_start_index = 0  
-        self.line_end_index = 0
-        self.visible_line_count = 0 
-        self.overscan_lines = 2
-        
-        
-        # --- bindings ---
-        self.bind_all("<Key>", self.on_key)
-                
-        # --- initial setup ---
-        self.text = self.parse_text()
-        self.trailing_line()
-        self.calculate_visible_lines()
-        
-        # initial draw
-        self.render()
-        
-    def calculate_visible_lines(self): 
-        view_top = self.scroll_y
-        view_bottom = self.scroll_y + self.canvas.winfo_height()
-        self.line_start_index = view_top // self.line_height
-        self.line_end_index = (view_bottom + self.line_height - 1) // self.line_height #First line outside viewport
-        # print("before overscan:", self.line_start_index, self.line_end_index)
-        # print("last line", self.text[self.line_end_index -1])
-                
-        #clamp to bounds
-        self.line_start_index = max(0, self.line_start_index - self.overscan_lines)
-        self.line_end_index = min(len(self.text), self.line_end_index + self.overscan_lines)
-        
-        #visible line count
-        self.visible_line_count = self.line_end_index - self.line_start_index - 1 #inclusive
-        
-    def draw_debug_scrollline(self): 
-        # Convert line indices to canvas Y coordinates
-        y_start = (
-            self.line_start_index * self.line_height
-            - self.scroll_y
-            + self.top_padding
-            + self.ascent
-        )
-        
-        y_end = (
-            (self.line_end_index - 1) * self.line_height
-            - self.scroll_y
-            - self.line_height
-            + self.baseline_y
-        )
-
-        # Draw a vertical debug line on the left side
-        self.canvas.create_line(
-            self.left_padding, y_start,
-            self.left_padding, y_end,
-            fill="red",
-            width=2,
-            tags="debug"
-        )
-        
-        #draw a horizontal line at the last line
-        self.canvas.create_line(
-            0, y_end,
-            600, y_end,
-            fill="blue",
-            width=2,
-            tags="debug"
-        )
-        
-        self.canvas.create_line(
-            0, y_start,
-            600, y_end,
-            fill="blue",
-            width=2,
-            tags="debug"
-        )
-    
-    def draw_debug_frame(self):
-        self.canvas.create_rectangle(
-            self.left_padding,
-            self.line_start_index * self.line_height - self.scroll_y + self.top_padding - self.descent,
-            600,
-            (self.line_end_index - 1) * self.line_height - self.scroll_y + self.top_padding,
-        )
-    
-    def parse_text(self):
-        # split text into lines based on newline characters
-        lines = self.text.split("\n")
-        return lines
-    
-    def on_canvas_resize(self, event):
-        self.calculate_visible_lines()
-        self.render()
-
-    def draw_debug_baselines(self):
-        # debug baselines
-        self.canvas.create_line(
-            0, self.baseline_y, 600, self.baseline_y, fill="#dddddd"
-        )
-        self.canvas.create_line(
-            0, self.top_padding + self.line_height,
-            600, self.top_padding + self.line_height,
-            fill="#dddddd"
-        )
-        self.canvas.create_line(
-            0, self.top_padding + self.ascent,
-            600, self.top_padding + self.ascent,
-            fill="#dddddd"
-        )
-    
-    def trailing_line(self):
-        if self.text[-1] != "":
-            self.text.append("")  # ensure there's an empty line at the end for new text    
-    
-    def render(self):
-        self.canvas.delete("all")
-        
-        # debug lines
-        # self.draw_debug_baselines()
-        # self.draw_debug_scrollline()
-        # self.draw_debug_frame()
-        
-        
+    def render_text(self):
         # text
-        y = self.top_padding + self.ascent + (self.line_start_index * self.line_height) - self.scroll_y
-        for line in range(self.line_start_index, self.line_end_index):
+        y = self.top_padding + self.ascent + (self.ctx.scroll.line_start_index * self.line_height) - self.ctx.scroll.scroll_y
+        for line in range(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index):
             x = self.left_padding
-            for ch in self.text[line]:
-                self.canvas.create_text(
+            for ch in self.ctx.document.lines[line]:
+                self.ctx.canvas.create_text(
                     x, y,
                     text=ch,
                     font=self.editor_font,
@@ -239,29 +145,54 @@ class CustomEditor(tk.Frame):
                 )
                 x += self.char_width
             y += self.line_height
-                    
+    
+    def render_cursor(self):
         # cursor
-        cursor_x = self.left_padding + self.cursor_x_index * self.char_width
-        cursor_y = self.top_padding - self.descent + self.cursor_y_index * self.line_height - self.scroll_y
-        self.canvas.create_line(
+        cursor_x = self.left_padding + self.ctx.document.cursor_x_index * self.char_width
+        cursor_y = self.top_padding - self.descent + self.ctx.document.cursor_y_index * self.line_height - self.ctx.scroll.scroll_y
+        self.ctx.canvas.create_line(
             cursor_x, cursor_y,
             cursor_x, cursor_y + self.ascent + self.descent,
             fill="black",
-        )
+        ) 
     
+    def render(self):
+        self.ctx.canvas.delete("all") 
+        self.render_text()
+        self.render_cursor()
+        
+class DocumentModel:
+    def __init__(self, ctx: EditorContext):
+        self.ctx = ctx
+        self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n\na\nb\nc\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\nend"
+        self.lines = []
+        self.cursor_x_index = 0  # position of the cursor in the text
+        self.cursor_y_index = 0
+        self.preferred_cursor_x = self.cursor_x_index
+        
+    def parse_text(self):
+        # split text into lines based on newline characters
+        lines = self.text.split("\n")
+        return lines
     
-    # cursor movement
+    def trailing_line(self):
+        if self.lines[-1] != "":
+            self.lines.append("")  # ensure there's an empty line at the end for new text  
+    
+    def get_line_number(self):
+        return len(self.lines)
+    
     def move_cursor(self, direction: Direction):
         if direction == Direction.LEFT:
             if self.cursor_x_index > 0:
                 self.cursor_x_index -= 1
             elif self.cursor_x_index == 0 and self.cursor_y_index > 0:
                 self.cursor_y_index -= 1
-                self.cursor_x_index = len(self.text[self.cursor_y_index])
+                self.cursor_x_index = len(self.lines[self.cursor_y_index])
             self.normalize_cursor_position()
             self.preferred_cursor_x = self.cursor_x_index
         elif direction == Direction.RIGHT:
-            if self.cursor_x_index == len(self.text[self.cursor_y_index]):
+            if self.cursor_x_index == len(self.lines[self.cursor_y_index]):
                 self.cursor_y_index += 1
                 self.cursor_x_index = 0
             else: 
@@ -286,37 +217,70 @@ class CustomEditor(tk.Frame):
         #cursor debug
         # cursor_y = self.top_padding - self.descent + self.cursor_y_index * self.line_height - self.scroll_y
         # print("cursor_y:", cursor_y)
-        self.keep_cursor_in_view()
-
+        self.ctx.scroll.keep_cursor_in_view()
+        
     def normalize_cursor_position(self, use_preferred: bool = False):
         # Vertical bounds
         self.cursor_y_index = max(self.cursor_y_index, 0)
-        self.cursor_y_index = min(self.cursor_y_index, len(self.text) - 1)   
+        self.cursor_y_index = min(self.cursor_y_index, self.get_line_number() - 1)   
         
-        line = self.text[self.cursor_y_index] # current line after vertical normalization to avoid index errors
+        line = self.lines[self.cursor_y_index] # current line after vertical normalization to avoid index errors
         
         # Horizontal bounds
         if use_preferred:
             self.cursor_x_index = min(self.preferred_cursor_x, len(line))
         else:
             self.cursor_x_index = max(self.cursor_x_index, 0)
-            self.cursor_x_index = min(self.cursor_x_index, len(line))      
-    
+            self.cursor_x_index = min(self.cursor_x_index, len(line))    
+        
+class ScrollManager:
+    def __init__(self, ctx: EditorContext):
+        self.ctx = ctx
+        # --- scroll state ---
+        self.scroll_y = 0  # vertical scroll offset
+        self.line_start_index = 0  
+        self.line_end_index = 0
+        self.visible_line_count = 0 
+        self.overscan_lines = 2
+
+    def calculate_visible_lines(self): 
+        view_top = self.scroll_y
+        view_bottom = self.scroll_y + self.ctx.canvas.winfo_height()
+        self.line_start_index = view_top // self.ctx.renderer.line_height
+        self.line_end_index = (view_bottom + self.ctx.renderer.line_height - 1) // self.ctx.renderer.line_height #First line outside viewport
+        # print("before overscan:", self.line_start_index, self.line_end_index)
+        # print("last line", self.ctx.document.lines[self.line_end_index -1])
+                
+        #clamp to bounds
+        self.line_start_index = max(0, self.line_start_index - self.overscan_lines)
+        self.line_end_index = min(self.ctx.document.get_line_number(), self.line_end_index + self.overscan_lines)
+        
+        #visible line count
+        self.visible_line_count = self.line_end_index - self.line_start_index - 1 #inclusive
+
+    def move_scroll(self, delta_y: int):
+        self.scroll_y += delta_y
+        self.scroll_y = max(0, self.scroll_y)
+        max_scroll = max(0, self.ctx.document.get_line_number() * self.ctx.renderer.line_height - self.ctx.canvas.winfo_height())
+        self.scroll_y = min(self.scroll_y, max_scroll)
+        self.calculate_visible_lines()  
+        
     def keep_cursor_in_view(self):
         view_top_y = 0
-        view_bottom_y =self.canvas.winfo_height()
-        cursor_y = self.top_padding - self.descent + self.cursor_y_index * self.line_height - self.scroll_y
+        view_bottom_y =self.ctx.canvas.winfo_height()
+        cursor_y = self.ctx.renderer.top_padding - self.ctx.renderer.descent + self.ctx.document.cursor_y_index * self.ctx.renderer.line_height - self.scroll_y
         scroll_offset = 0
         if cursor_y < view_top_y:  
             scroll_offset = view_top_y - cursor_y
             self.move_scroll(-scroll_offset)
-        if cursor_y + self.line_height > view_bottom_y:
-            scroll_offset = (cursor_y + self.line_height) - view_bottom_y
+        if cursor_y + self.ctx.renderer.line_height > view_bottom_y:
+            scroll_offset = (cursor_y + self.ctx.renderer.line_height) - view_bottom_y
             self.move_scroll(scroll_offset)
-        # implement scroll adjustment, measure how much out of view to scroll by
         
+class InputManager:
+    def __init__(self, ctx: EditorContext):
+        self.ctx = ctx      
         
-    
     # input handling        
     def on_key(self, event):
         movement_keys = {
@@ -328,91 +292,74 @@ class CustomEditor(tk.Frame):
             "End": Direction.LINE_END
         }
         if event.keysym in movement_keys:
-            self.move_cursor(movement_keys[event.keysym])
-            self.render()
+            self.ctx.document.move_cursor(movement_keys[event.keysym])
+            self.ctx.renderer.render()
             return "break"
         
         if event.char.isprintable() and len(event.char) == 1:
-            for i, line in enumerate(self.text):
-                if i == self.cursor_y_index:
+            for i, line in enumerate(self.ctx.document.lines):
+                if i == self.ctx.document.cursor_y_index:
                     self.text[i] = (
-                        line[: self.cursor_x_index]
+                        line[: self.ctx.document.cursor_x_index]
                         + event.char
-                        + line[self.cursor_x_index :]
+                        + line[self.ctx.document.cursor_x_index :]
                     )
-            self.trailing_line()
-            self.move_cursor(Direction.RIGHT)
+            self.ctx.document.trailing_line()
+            self.ctx.document.move_cursor(Direction.RIGHT)
             self.render()
             return "break"
         
         if event.keysym == "BackSpace":
             text_after_cursor = ""
-            if self.cursor_x_index > 0:
-                for i, line in enumerate(self.text):
-                    if i == self.cursor_y_index:
-                        text_after_cursor = line[self.cursor_x_index :]
-                        self.text[i] = (
-                            line[: self.cursor_x_index - 1] + line[self.cursor_x_index :]
+            if self.ctx.document.cursor_x_index > 0:
+                for i, line in enumerate(self.ctx.document.text):
+                    if i == self.ctx.document.cursor_y_index:
+                        text_after_cursor = line[self.ctx.document.cursor_x_index :]
+                        self.ctx.document.lines[i] = (
+                            line[: self.ctx.document.cursor_x_index - 1] + line[self.ctx.document.cursor_x_index :]
                         )                        
-            elif self.cursor_x_index == 0:
-                text_after_cursor = self.text[self.cursor_y_index][self.cursor_x_index :]
-                for i, line in enumerate(self.text):
-                    if i == self.cursor_y_index:
-                        self.text.pop(i)
-            self.move_cursor(Direction.LEFT)
+            elif self.ctx.document.cursor_x_index == 0:
+                text_after_cursor = self.ctx.document.lines[self.ctx.document.cursor_y_index][self.ctx.document.cursor_x_index :]
+                for i, line in enumerate(self.ctx.document.lines):
+                    if i == self.ctx.document.cursor_y_index:
+                        self.ctx.document.lines.pop(i)
+            self.ctx.document.move_cursor(Direction.LEFT)
             for i, line in enumerate(self.text):
-                if i == self.cursor_y_index:
-                    self.text[i] = (
+                if i == self.ctx.document.cursor_y_index:
+                    self.ctx.document.lines[i] = (
                         line + text_after_cursor
                     )
-            self.render()
+            self.ctx.renderer.render()
             return "break"
         
         if event.keysym == "Delete":
-            pass
+            pass  
         
         if event.keysym == "Return":
-            for i,line in enumerate(self.text):
-                if i == self.cursor_y_index:
-                    new_line = line[self.cursor_x_index :]
-                    self.text[i] = line[: self.cursor_x_index]
-                    self.text.insert(i + 1, new_line)
-            self.move_cursor(Direction.DOWN)
-            self.move_cursor(Direction.LINE_START)
-            self.render()
-            return "break"
-            
-    # mouse wheel scrolling
+            for i,line in enumerate(self.ctx.document.lines):
+                if i == self.ctx.document.cursor_y_index:
+                    new_line = line[self.ctx.document.cursor_x_index :]
+                    self.ctx.document.lines[i] = line[: self.ctx.document.cursor_x_index]
+                    self.ctx.document.lines.insert(i + 1, new_line)
+            self.ctx.document.move_cursor(Direction.DOWN)
+            self.ctx.document.move_cursor(Direction.LINE_START)
+            self.ctx.renderer.render()
+            return "break"  
+        
     def on_mousewheel(self, event):
         if event.delta:
-            self.move_scroll(-1 * (event.delta // 120) * self.line_height) 
-            self.render()
+            self.ctx.scroll.move_scroll(-1 * (event.delta // 120) * self.ctx.renderer.line_height) 
+            self.ctx.renderer.render()
             # print("mousewheel moved and rendered")
             return "break"
         
-    def move_scroll(self, delta_y: int):
-        self.scroll_y += delta_y
-        self.scroll_y = max(0, self.scroll_y)
-        max_scroll = max(0, len(self.text) * self.line_height - self.canvas.winfo_height())
-        self.scroll_y = min(self.scroll_y, max_scroll)
-        self.calculate_visible_lines()  
-        
-        #cursor debug
-        # cursor_y = self.top_padding - self.descent + self.cursor_y_index * self.line_height - self.scroll_y
-        # print("cursor_y:", cursor_y)
-        
-        # print("scroll_y:", self.scroll_y)
-        # print("first visible line:", self.first_visible_line)
-        # print("last visible line:", self.last_visible_line)
-        # print("visible line count:", self.visible_line_count) 
-        
     # mouse debugging
-    def on_left_click_debug(self, event):
-        print("click at:", event.x, event.y)
-        if event.y >= self.line_start_index * self.line_height - self.scroll_y + self.top_padding and event.y <= (self.line_end_index - 1) * self.line_height - self.scroll_y + self.top_padding:
-            print("within rendered lines")
-        else:
-            print("outside rendered lines")
+    # def on_left_click_debug(self, event):
+    #     print("click at:", event.x, event.y)
+    #     if event.y >= self.line_start_index * self.line_height - self.scroll_y + self.top_padding and event.y <= (self.line_end_index - 1) * self.line_height - self.scroll_y + self.top_padding:
+    #         print("within rendered lines")
+    #     else:
+    #         print("outside rendered lines")
 
 # --- basic window ---
 root = tk.Tk()
@@ -420,3 +367,5 @@ editor = CustomEditor(root)
 editor.pack(fill=tk.BOTH, expand=True) # expand frame to fill window
 editor.pack()
 root.mainloop()
+
+    
