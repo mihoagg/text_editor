@@ -137,6 +137,7 @@ class Renderer:
         # text
         y = self.top_padding + self.ascent + (self.ctx.scroll.line_start_index * self.line_height) - self.ctx.scroll.scroll_y
         for line in range(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index):
+            print(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index)
             x = self.left_padding
             for ch in self.ctx.document.lines[line]:
                 self.ctx.canvas.create_text(
@@ -234,6 +235,25 @@ class DocumentModel:
         else:
             self.cursor_x_index = max(self.cursor_x_index, 0)
             self.cursor_x_index = min(self.cursor_x_index, len(line))    
+    
+    def insert_at_cursor(self):
+        pass
+         
+    def delete_at_cursor(self):
+        text_after_cursor = ""
+        if self.cursor_x_index > 0:
+            current_line = self.lines[self.cursor_y_index]
+            text_after_cursor = current_line[self.cursor_x_index :]
+            current_line = current_line[: self.cursor_x_index - 1] + current_line[self.cursor_x_index :]
+            self.move_cursor(Direction.LEFT)
+        
+        elif self.cursor_x_index == 0 and self.cursor_y_index > 0:
+            current_line = self.lines[self.cursor_y_index]
+            text_after_cursor = current_line[self.cursor_x_index :]
+            previous_line = self.line[self.cursor_y_index - 1]
+        
+        elif self.cursor_x_index == 0 and self.cursor_y_index == 0:
+            pass
         
 class ScrollManager:
     def __init__(self, ctx: EditorContext):
@@ -311,7 +331,7 @@ class InputManager:
             self.ctx.renderer.render()
             return "break"
         
-        if event.keysym == "BackSpace": #TODO: currently broken when at the end, create a new delete function inside document
+        if event.keysym == "BackSpace":
             text_after_cursor = ""
             if self.ctx.document.cursor_x_index > 0:
                 current_line = self.ctx.document.lines[self.ctx.document.cursor_y_index]
@@ -322,17 +342,20 @@ class InputManager:
                 self.ctx.document.move_cursor(Direction.LEFT)
                 
             elif self.ctx.document.cursor_x_index == 0 and self.ctx.document.cursor_y_index > 0:
-                # merge lines
                 previous_line = self.ctx.document.lines[self.ctx.document.cursor_y_index - 1]
                 text_after_cursor = self.ctx.document.lines[self.ctx.document.cursor_y_index]
-                previous_line = previous_line + text_after_cursor
                 #move cursor
                 self.ctx.document.move_cursor(Direction.LEFT)
+                # merge lines
+                previous_line = previous_line + text_after_cursor
                 #update buffer
                 self.ctx.document.lines[self.ctx.document.cursor_y_index] = previous_line
                 #delete line
                 self.ctx.document.lines.pop(self.ctx.document.cursor_y_index + 1)
-                
+                print(self.ctx.document.lines)
+                print("cursor line ", self.ctx.document.lines[self.ctx.document.cursor_y_index])
+            
+            self.ctx.scroll.calculate_visible_lines()
             self.ctx.renderer.render()
             return "break"
         
