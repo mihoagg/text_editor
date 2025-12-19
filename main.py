@@ -30,48 +30,6 @@ from enum import Enum, auto
 
 
 
-# wishlist / future features:
-# INPUT LAYER:
-# Scrolling and copy paste, undo redo, mouse support
-# TEXT LAYOUT LAYER:
-# Line wrapping 
-# Syntax highlighting, bidi text, complex scripts
-
-
-# RENDERING LAYER:
-# Smooth scrolling, hardware acceleration
-# Plugin system for rendering (eg. minimap, line numbers, etc.)
-# Syntax Highlighting
-
-
-# Document model layer:
-# Efficient data structures for text storage and manipulation
-# Multiple documents/tabs support
-# File I/O operations
-# Integration with external tools (e.g., linters, formatters)
-
-
-# User interface layer:
-# Menus, toolbars, status bars
-# Customizable themes and settings
-# Search and replace functionality
-# Collaboration features (real-time editing with others)
-
-
-# Performance optimizations:
-# Lazy rendering, caching mechanisms
-# Profiling and benchmarking tools
-# Testing framework for editor features
-
-# Accessibility features:
-# Keyboard navigation, screen reader support
-# High contrast themes, adjustable font sizes
-# Internationalization and localization support
-
-# Plugin architecture:
-# API for third-party extensions
-
-
 class EditorContext:
     def __init__(self):
         self.canvas = None
@@ -140,7 +98,8 @@ class Renderer:
         
     def render_text(self):
         # text
-        y = self.top_padding + self.ascent + (self.ctx.scroll.line_start_index * self.line_height) - self.ctx.scroll.scroll_y
+        y = self.top_padding + (self.ctx.scroll.line_start_index * self.line_height) - self.ctx.scroll.scroll_y
+        self.ctx.canvas.create_line(0, y, 500, y, fill="black")
         for line in range(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index):
             x = self.left_padding
             for ch in self.ctx.document.lines[line]:
@@ -148,7 +107,7 @@ class Renderer:
                     x, y,
                     text=ch,
                     font=self.editor_font,
-                    anchor="sw"
+                    anchor="nw"
                 )
                 x += self.char_width
             y += self.line_height
@@ -156,10 +115,10 @@ class Renderer:
     def render_cursor(self): #TODO fix top padding
         # cursor
         cursor_x = self.left_padding + self.ctx.document.cursor_x_index * self.char_width
-        cursor_y = self.top_padding - self.descent + self.ctx.document.cursor_y_index * self.line_height - self.ctx.scroll.scroll_y
+        cursor_y = self.top_padding + self.ctx.document.cursor_y_index * self.line_height - self.ctx.scroll.scroll_y
         self.ctx.canvas.create_line(
             cursor_x, cursor_y,
-            cursor_x, cursor_y + self.ascent + self.descent,
+            cursor_x, cursor_y + self.line_height,
             fill="black",
         ) 
     
