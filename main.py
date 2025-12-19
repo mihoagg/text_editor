@@ -13,6 +13,11 @@ from enum import Enum, auto
 # undo redo stack
 # scrolbar
 # i/o
+
+# minimize redraw (render whole line, dirty region, caching)
+# use data structure for text storage
+# observer pattern
+
 # scroll when moving cursor out of view DONE
 # cursor renders on top padding DONE
 
@@ -102,6 +107,7 @@ class CustomEditor(tk.Frame):
         # --- bindings ---
         self.canvas.bind("<Configure>", self.on_canvas_resize)
         self.canvas.bind("<MouseWheel>", self.ctx.input.on_mousewheel)
+        self.canvas.bind("<Button-1>", self.ctx.input.on_leftclick)
         self.bind_all("<Key>", self.ctx.input.on_key)
         
         # --- bindings ---
@@ -116,7 +122,6 @@ class CustomEditor(tk.Frame):
     def on_canvas_resize(self, event):
         self.ctx.scroll.calculate_visible_lines()
         self.ctx.renderer.render()
-        print("canvas resized")
 
 class Renderer:
     def __init__(self, ctx: EditorContext):
@@ -137,7 +142,6 @@ class Renderer:
         # text
         y = self.top_padding + self.ascent + (self.ctx.scroll.line_start_index * self.line_height) - self.ctx.scroll.scroll_y
         for line in range(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index):
-            print(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index)
             x = self.left_padding
             for ch in self.ctx.document.lines[line]:
                 self.ctx.canvas.create_text(
@@ -149,7 +153,7 @@ class Renderer:
                 x += self.char_width
             y += self.line_height
     
-    def render_cursor(self):
+    def render_cursor(self): #TODO fix top padding
         # cursor
         cursor_x = self.left_padding + self.ctx.document.cursor_x_index * self.char_width
         cursor_y = self.top_padding - self.descent + self.ctx.document.cursor_y_index * self.line_height - self.ctx.scroll.scroll_y
@@ -245,17 +249,41 @@ class DocumentModel:
             current_line = self.lines[self.cursor_y_index]
             text_after_cursor = current_line[self.cursor_x_index :]
             current_line = current_line[: self.cursor_x_index - 1] + current_line[self.cursor_x_index :]
+            self.lines[self.cursor_y_index] = current_line
             self.move_cursor(Direction.LEFT)
         
         elif self.cursor_x_index == 0 and self.cursor_y_index > 0:
             current_line = self.lines[self.cursor_y_index]
             text_after_cursor = current_line[self.cursor_x_index :]
-            previous_line = self.line[self.cursor_y_index - 1]
-        
+            previous_line = self.lines[self.cursor_y_index - 1]
+            # merge lines
+            previous_line = previous_line + text_after_cursor
+            #move cursor
+            self.move_cursor(Direction.LEFT)
+            #update buffer
+            self.lines[self.cursor_y_index] = previous_line
+            #delete line
+            self.lines.pop(self.cursor_y_index + 1)
+            #recalculate visable lines
+            self.ctx.scroll.calculate_visible_lines()
+            
+            
         elif self.cursor_x_index == 0 and self.cursor_y_index == 0:
             pass
         
-class ScrollManager:
+    def move_cursor_to_mouse(self, mouse_x, mouse_y): # CHECK BOUNDS
+        #calculate which line clicked
+        self.cursor_y_index = (mouse_y + self.ctx.scroll.scroll_y) // self.ctx.renderer.line_height
+        #which char is clicked
+        self.cursor_x_index = (mouse_x - self.ctx.renderer.left_padding) // self.ctx.renderer.editor_font.cget("size")
+        #relative x within the character
+        relative_x = (mouse_x - self.ctx.renderer.left_padding) % self.ctx.renderer.editor_font.cget("size")
+        if relative_x > self.ctx.renderer.editor_font.cget("size") / 2:
+            # place cursor after this character
+            self.cursor_x_index += 1
+        self.normalize_cursor_position()  
+        
+class ScrollManager: #TODO fix top padding
     def __init__(self, ctx: EditorContext):
         self.ctx = ctx
         # --- scroll state ---
@@ -318,7 +346,7 @@ class InputManager:
             self.ctx.renderer.render()
             return "break"
         
-        if event.char.isprintable() and len(event.char) == 1:
+        if event.char.isprintable() and len(event.char) == 1: #TODO split logic into document
             for i, line in enumerate(self.ctx.document.lines):
                 if i == self.ctx.document.cursor_y_index:
                     self.ctx.document.lines[i] = (
@@ -332,37 +360,14 @@ class InputManager:
             return "break"
         
         if event.keysym == "BackSpace":
-            text_after_cursor = ""
-            if self.ctx.document.cursor_x_index > 0:
-                current_line = self.ctx.document.lines[self.ctx.document.cursor_y_index]
-                text_after_cursor = current_line[self.ctx.document.cursor_x_index :]
-                self.ctx.document.lines[self.ctx.document.cursor_y_index] = (
-                    current_line[: self.ctx.document.cursor_x_index - 1] + current_line[self.ctx.document.cursor_x_index :]
-                )
-                self.ctx.document.move_cursor(Direction.LEFT)
-                
-            elif self.ctx.document.cursor_x_index == 0 and self.ctx.document.cursor_y_index > 0:
-                previous_line = self.ctx.document.lines[self.ctx.document.cursor_y_index - 1]
-                text_after_cursor = self.ctx.document.lines[self.ctx.document.cursor_y_index]
-                #move cursor
-                self.ctx.document.move_cursor(Direction.LEFT)
-                # merge lines
-                previous_line = previous_line + text_after_cursor
-                #update buffer
-                self.ctx.document.lines[self.ctx.document.cursor_y_index] = previous_line
-                #delete line
-                self.ctx.document.lines.pop(self.ctx.document.cursor_y_index + 1)
-                print(self.ctx.document.lines)
-                print("cursor line ", self.ctx.document.lines[self.ctx.document.cursor_y_index])
-            
-            self.ctx.scroll.calculate_visible_lines()
+            self.ctx.document.delete_at_cursor()
             self.ctx.renderer.render()
-            return "break"
+            return "break" 
         
         if event.keysym == "Delete":
             pass  
         
-        if event.keysym == "Return":
+        if event.keysym == "Return": #TODO split logic into document
             for i,line in enumerate(self.ctx.document.lines):
                 if i == self.ctx.document.cursor_y_index:
                     new_line = line[self.ctx.document.cursor_x_index :]
@@ -380,13 +385,11 @@ class InputManager:
             # print("mousewheel moved and rendered")
             return "break"
         
-    # mouse debugging
-    # def on_left_click_debug(self, event):
-    #     print("click at:", event.x, event.y)
-    #     if event.y >= self.line_start_index * self.line_height - self.scroll_y + self.top_padding and event.y <= (self.line_end_index - 1) * self.line_height - self.scroll_y + self.top_padding:
-    #         print("within rendered lines")
-    #     else:
-    #         print("outside rendered lines")
+    def on_leftclick(self, event):
+        self.ctx.document.move_cursor_to_mouse(event.x, event.y)
+        self.ctx.renderer.render()
+        return "break" 
+        
 
 # --- basic window ---
 root = tk.Tk()
