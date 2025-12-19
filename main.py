@@ -94,11 +94,11 @@ class Renderer:
                 
         # --- layout constants ---
         self.left_padding = 10
-        self.top_padding = 20
+        # self.top_padding = 20
         
     def render_text(self):
         # text
-        y = self.top_padding + (self.ctx.scroll.line_start_index * self.line_height) - self.ctx.scroll.scroll_y
+        y = (self.ctx.scroll.line_start_index * self.line_height) - self.ctx.scroll.scroll_y
         self.ctx.canvas.create_line(0, y, 500, y, fill="black")
         for line in range(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index):
             x = self.left_padding
@@ -115,7 +115,7 @@ class Renderer:
     def render_cursor(self): #TODO fix top padding
         # cursor
         cursor_x = self.left_padding + self.ctx.document.cursor_x_index * self.char_width
-        cursor_y = self.top_padding + self.ctx.document.cursor_y_index * self.line_height - self.ctx.scroll.scroll_y
+        cursor_y = self.ctx.document.cursor_y_index * self.line_height - self.ctx.scroll.scroll_y
         self.ctx.canvas.create_line(
             cursor_x, cursor_y,
             cursor_x, cursor_y + self.line_height,
@@ -180,9 +180,6 @@ class DocumentModel:
             self.cursor_x_index = len(line)
             self.normalize_cursor_position()
             self.preferred_cursor_x = self.cursor_x_index
-        #cursor debug
-        # cursor_y = self.top_padding - self.descent + self.cursor_y_index * self.line_height - self.scroll_y
-        # print("cursor_y:", cursor_y)
         self.ctx.scroll.keep_cursor_in_view()
         
     def normalize_cursor_position(self, use_preferred: bool = False):
@@ -277,7 +274,7 @@ class ScrollManager: #TODO fix top padding
     def keep_cursor_in_view(self):
         view_top_y = 0
         view_bottom_y =self.ctx.canvas.winfo_height()
-        cursor_y = self.ctx.renderer.top_padding - self.ctx.renderer.descent + self.ctx.document.cursor_y_index * self.ctx.renderer.line_height - self.scroll_y
+        cursor_y = self.ctx.document.cursor_y_index * self.ctx.renderer.line_height - self.scroll_y
         scroll_offset = 0
         if cursor_y < view_top_y:  
             scroll_offset = view_top_y - cursor_y

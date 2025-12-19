@@ -1,0 +1,40 @@
+# wishlist / future features:
+# INPUT LAYER:
+# Scrolling and copy paste, undo redo, mouse support
+# TEXT LAYOUT LAYER:
+# Line wrapping 
+# Syntax highlighting, bidi text, complex scripts
+
+
+# RENDERING LAYER:
+# Smooth scrolling, hardware acceleration
+# Plugin system for rendering (eg. minimap, line numbers, etc.)
+# Syntax Highlighting
+
+
+# Document model layer:
+# Efficient data structures for text storage and manipulation
+# Multiple documents/tabs support
+# File I/O operations
+# Integration with external tools (e.g., linters, formatters)
+
+
+# User interface layer:
+# Menus, toolbars, status bars
+# Customizable themes and settings
+# Search and replace functionality
+# Collaboration features (real-time editing with others)
+
+
+# Performance optimizations:
+# Lazy rendering, caching mechanisms
+# Profiling and benchmarking tools
+# Testing framework for editor features
+
+# Accessibility features:
+# Keyboard navigation, screen reader support
+# High contrast themes, adjustable font sizes
+# Internationalization and localization support
+
+# Plugin architecture:
+# API for third-party extensions
