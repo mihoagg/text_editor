@@ -238,6 +238,7 @@ class DocumentModel:
             # place cursor after this character
             self.cursor_x_index += 1
         self.normalize_cursor_position()  
+        self.ctx.scroll.keep_cursor_in_view()
         
 class ScrollManager: 
     def __init__(self, ctx: EditorContext):
