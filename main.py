@@ -227,19 +227,19 @@ class DocumentModel:
         elif self.cursor_x_index == 0 and self.cursor_y_index == 0:
             pass
         
-    def move_cursor_to_mouse(self, mouse_x, mouse_y): # CHECK BOUNDS
+    def move_cursor_to_mouse(self, mouse_x, mouse_y): 
         #calculate which line clicked
         self.cursor_y_index = (mouse_y + self.ctx.scroll.scroll_y) // self.ctx.renderer.line_height
         #which char is clicked
-        self.cursor_x_index = (mouse_x - self.ctx.renderer.left_padding) // self.ctx.renderer.editor_font.cget("size")
+        self.cursor_x_index = (mouse_x - self.ctx.renderer.left_padding) // self.ctx.renderer.char_width
         #relative x within the character
-        relative_x = (mouse_x - self.ctx.renderer.left_padding) % self.ctx.renderer.editor_font.cget("size")
-        if relative_x > self.ctx.renderer.editor_font.cget("size") / 2:
+        relative_x = (mouse_x - self.ctx.renderer.left_padding) % self.ctx.renderer.char_width
+        if relative_x > self.ctx.renderer.char_width / 2:
             # place cursor after this character
             self.cursor_x_index += 1
         self.normalize_cursor_position()  
         
-class ScrollManager: #TODO fix top padding
+class ScrollManager: 
     def __init__(self, ctx: EditorContext):
         self.ctx = ctx
         # --- scroll state ---
