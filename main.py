@@ -7,14 +7,14 @@ from enum import Enum, auto
 # TODO: 
 # split input and delete into document layer
 # mouse support for cursor movement and text selection
-# # line wrapping
+# line wrapping
 # clipboard support, ctrl cvax
 # text highlight
 # undo redo stack
 # scrolbar
 # i/o
 
-# minimize redraw (render whole line, dirty region, caching)
+# minimize redraw (render whole line, dirty region, caching , only move index onscroll, non rerender highlight)
 # use data structure for text storage
 # observer pattern
 
@@ -22,7 +22,7 @@ from enum import Enum, auto
 # cursor renders on top padding DONE
 
 # modularize:
-# maybe split render to draw_text and draw_cursor
+# maybe split render to draw_text and draw_cursor DONE
 # split on_key to movement, insertion, backspace return...
 
 # maybe single index for cursor position instead of (x, y)
@@ -68,14 +68,11 @@ class CustomEditor(tk.Frame):
         self.canvas.bind("<Button-1>", self.ctx.input.on_leftclick)
         self.bind_all("<Key>", self.ctx.input.on_key)
         
-        # --- bindings ---
-        #self.bind_all("<Key>", self.on_key)
-        
         # initial set up
         self.ctx.document.lines = self.ctx.document.parse_text()
         self.ctx.document.trailing_line()
-        self.ctx.scroll.calculate_visible_lines()
-        self.ctx.renderer.render()
+        # test box
+        # self.canvas.create_rectangle(50, 50, 150, 150, fill="lightblue", outline="black")
 
     def on_canvas_resize(self, event):
         self.ctx.scroll.calculate_visible_lines()
@@ -112,7 +109,7 @@ class Renderer:
                 x += self.char_width
             y += self.line_height
     
-    def render_cursor(self): #TODO fix top padding
+    def render_cursor(self):
         # cursor
         cursor_x = self.left_padding + self.ctx.document.cursor_x_index * self.char_width
         cursor_y = self.ctx.document.cursor_y_index * self.line_height - self.ctx.scroll.scroll_y
@@ -121,6 +118,9 @@ class Renderer:
             cursor_x, cursor_y + self.line_height,
             fill="black",
         ) 
+
+    def move_selected_background(self):
+        pass
     
     def render(self):
         self.ctx.canvas.delete("all") 
@@ -135,7 +135,12 @@ class DocumentModel:
         self.cursor_x_index = 0  # position of the cursor in the text
         self.cursor_y_index = 0
         self.preferred_cursor_x = self.cursor_x_index
-        
+        #selection
+        self.selection_index = {
+            'start': (0,0),
+            'end': (0,5)
+            }
+
     def parse_text(self):
         # split text into lines based on newline characters
         lines = self.text.split("\n")
@@ -196,8 +201,15 @@ class DocumentModel:
             self.cursor_x_index = max(self.cursor_x_index, 0)
             self.cursor_x_index = min(self.cursor_x_index, len(line))    
     
-    def insert_at_cursor(self):
-        pass
+    def insert_at_cursor(self, ch):
+        line = self.lines[self.cursor_y_index]
+        self.lines[self.cursor_y_index] = (
+                line[: self.cursor_x_index]
+                + ch
+                + line[self.cursor_x_index :]
+            )
+        self.trailing_line()
+        self.move_cursor(Direction.RIGHT)
          
     def delete_at_cursor(self):
         text_after_cursor = ""
@@ -224,7 +236,7 @@ class DocumentModel:
             self.ctx.scroll.calculate_visible_lines()
             
             
-        elif self.cursor_x_index == 0 and self.cursor_y_index == 0:
+        elif self.cursor_x_index == 0 and self.cursor_y_index == 0: #TODO delete if line empty
             pass
         
     def move_cursor_to_mouse(self, mouse_x, mouse_y): 
@@ -303,16 +315,8 @@ class InputManager:
             self.ctx.renderer.render()
             return "break"
         
-        if event.char.isprintable() and len(event.char) == 1: #TODO split logic into document
-            for i, line in enumerate(self.ctx.document.lines):
-                if i == self.ctx.document.cursor_y_index:
-                    self.ctx.document.lines[i] = (
-                        line[: self.ctx.document.cursor_x_index]
-                        + event.char
-                        + line[self.ctx.document.cursor_x_index :]
-                    )
-            self.ctx.document.trailing_line()
-            self.ctx.document.move_cursor(Direction.RIGHT)
+        if event.char.isprintable() and len(event.char) == 1: 
+            self.ctx.document.insert_at_cursor(event.char)
             self.ctx.renderer.render()
             return "break"
         
