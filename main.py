@@ -32,7 +32,7 @@ from enum import Enum, auto
 '''
 on click: -set anchor,
 on drag: -set active,
--normalize start end by compare x first then y if x1 = x2 ,
+-normalize start end by compare y first then x if y1 = y2 ,
 -update document state with derived start and end,
 -call render,
 '''
@@ -74,15 +74,12 @@ class CustomEditor(tk.Frame):
         # --- bindings ---
         self.canvas.bind("<Configure>", self.on_canvas_resize)
         self.canvas.bind("<MouseWheel>", self.ctx.input.on_mousewheel)
-        self.canvas.bind("<Button-1>", self.left_mouse_handler)
+        self.canvas.bind("<Button-1>", self.ctx.input.on_leftclick)
         self.bind_all("<Key>", self.ctx.input.on_key)
         
         # initial set up
         self.ctx.document.lines = self.ctx.document.parse_text()
         self.ctx.document.trailing_line()
-        
-    def left_mouse_handler(self, event):
-        self.ctx.input.on_leftclick
 
     def on_canvas_resize(self, event):
         self.ctx.scroll.calculate_visible_lines()
@@ -128,8 +125,23 @@ class Renderer:
             ) 
 
     def render_select(self):
-        column_start, line_start = self.ctx.document.selection_index['start']
-        column_end, line_end = self.ctx.document.selection_index['end']
+        anchor_x, anchor_y = self.ctx.document.selection_index['anchor']
+        active_x, active_y = self.ctx.document.selection_index['active']
+        
+        #normalize start end index
+        line_start = min(anchor_y, active_y)
+        line_end   = max(anchor_y, active_y)
+        
+        if anchor_y == active_y:
+            column_start = min(anchor_x, active_x)
+            column_end   = max(anchor_x, active_x)
+        elif anchor_y < active_y:
+            column_start = anchor_x
+            column_end   = active_x
+        else:
+            column_start = active_x
+            column_end   = anchor_x
+        
         for line in range(line_start, line_end):
             if line in range(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index):
                 # selection in only 1 line
@@ -195,7 +207,8 @@ class Renderer:
     
     def render(self):
         self.ctx.canvas.delete("all") 
-        self.render_select()
+        if self.ctx.document.selection_index['anchor'] is not None and self.ctx.document.selection_index['active'] is not None:
+            self.render_select()
         self.render_text()
         self.render_cursor()
         
@@ -209,10 +222,10 @@ class DocumentModel:
         self.cursor_y_index = 0
         self.preferred_cursor_x = self.cursor_x_index
         #selection
-        #TODO: store anchor and active index instead, normalize in render
         self.selection_index = {
-            'start': (0,0), #x,y
-            'end': (5,1) #exclusive end index
+            'anchor': (0,0), #x,y
+            'active': (5,1), #exclusive end index
+            #'direction': ""
             }
 
     def parse_text(self):
@@ -325,9 +338,35 @@ class DocumentModel:
             self.cursor_x_index += 1
         self.normalize_cursor_position()  
         self.ctx.scroll.keep_cursor_in_view()
+    
+    # raw pixels to text index
+    def coords_to_index(self, x=0, y=0):
+        line_index = y // self.ctx.renderer.line_height
+        line_index = min(max(line_index, 0), len(self.lines) - 1)
+        column_index = (x - self.ctx.renderer.left_padding) // self.ctx.renderer.char_width
+        column_index = min(max(column_index, 0), len(self.lines[line_index]))
+        # check if cursor is past half a character
+        char_start_x = self.ctx.renderer.left_padding + column_index * self.ctx.renderer.char_width
+        if x - char_start_x > self.ctx.renderer.char_width / 2:
+            column_index += 1
+            column_index = min(column_index, len(self.lines[line_index]))
+        return column_index, line_index
         
-    def select_text(self):
-        pass
+    def screen_coords_to_index(self, screen_x=0, screen_y=0):
+        doc_x = screen_x
+        doc_y = screen_y + self.ctx.scroll.scroll_y
+        return self.coords_to_index(doc_x, doc_y)
+    
+    def set_selection(self, cursor_x, cursor_y):
+        column, line = self.screen_coords_to_index(cursor_x, cursor_y)
+        if self.selection_index['anchor'] is None:
+            self.selection_index['anchor'] = (column, line)
+        self.selection_index['active'] = (column, line + 1)
+        
+    def clear_selection(self):
+        # Clear previous selection
+        self.selection_index['anchor'] = None
+        self.selection_index['active'] = None
         
 class ScrollManager: 
     def __init__(self, ctx: EditorContext):
@@ -423,12 +462,14 @@ class InputManager:
         
     def on_leftclick(self, event):
         self.ctx.document.move_cursor_to_mouse(event.x, event.y)
+        self.ctx.document.set_selection(event.x, event.y)
+        #self.ctx.document.clear_selection()
         self.ctx.renderer.render()
         return "break" 
         
-    def on_on_leftclick_hold(self, event): #TODO
-        self.ctx.document.selec_text()
-
+    def on_leftclick_drag(self, event): #TODO
+        pass
+        
 # --- basic window ---
 root = tk.Tk()
 editor = CustomEditor(root)
