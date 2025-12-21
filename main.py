@@ -5,6 +5,7 @@ from enum import Enum, auto
 
 
 # TODO: 
+# create editor state class that store scroll, cursor, selection, and undo redo
 # split input and delete into document layer
 # mouse support for cursor movement and text selection
 # line wrapping
@@ -27,6 +28,14 @@ from enum import Enum, auto
 
 # maybe single index for cursor position instead of (x, y)
 
+
+'''
+on click: -set anchor,
+on drag: -set active,
+-normalize start end by compare x first then y if x1 = x2 ,
+-update document state with derived start and end,
+-call render,
+'''
 
 
 
@@ -200,9 +209,10 @@ class DocumentModel:
         self.cursor_y_index = 0
         self.preferred_cursor_x = self.cursor_x_index
         #selection
+        #TODO: store anchor and active index instead, normalize in render
         self.selection_index = {
             'start': (0,0), #x,y
-            'end': (1,5) #exclusive end index
+            'end': (5,1) #exclusive end index
             }
 
     def parse_text(self):
