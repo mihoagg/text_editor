@@ -144,10 +144,10 @@ class Renderer:
             column_start = active_x
             column_end   = anchor_x
         
-        for line in range(line_start, line_end):
+        for line in range(line_start, line_end + 1):
             if line in range(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index):
                 # selection in only 1 line
-                if line == line_start and line == line_end - 1:
+                if line == line_start and line == line_end:
                     self.ctx.canvas.create_rectangle(
                         #x1
                         column_start * self.char_width + self.left_padding,
@@ -176,7 +176,7 @@ class Renderer:
                     )
                 # line at end index 
                 # - 1 for line_end is exclusive
-                elif line == line_end - 1:
+                elif line == line_end:
                     self.ctx.canvas.create_rectangle(
                         #x1
                         self.left_padding,
@@ -225,8 +225,8 @@ class DocumentModel:
         self.preferred_cursor_x = self.cursor_x_index
         #selection
         self.selection_index = {
-            'anchor': (0,0), #x,y
-            'active': (5,1), #exclusive end index
+            'anchor': None, #x,y
+            'active': None,
             #'direction': ""
             }
 
@@ -338,7 +338,7 @@ class DocumentModel:
     # raw pixels to text index
     def coords_to_index(self, x=0, y=0):
         line_index = y // self.ctx.renderer.line_height
-        line_index = min(max(line_index, 0), len(self.lines) - 1)
+        line_index = min(max(line_index, 0), len(self.lines))
         column_index = (x - self.ctx.renderer.left_padding) // self.ctx.renderer.char_width
         column_index = min(max(column_index, 0), len(self.lines[line_index]))
         # check if cursor is past half a character
@@ -357,7 +357,7 @@ class DocumentModel:
         column, line = self.screen_coords_to_index(cursor_x, cursor_y)
         if self.selection_index['anchor'] is None:
             self.selection_index['anchor'] = (column, line)
-        self.selection_index['active'] = (column, line + 1)
+        self.selection_index['active'] = (column, line)
         self.move_cursor_to_mouse(cursor_x, cursor_y)
         
     def clear_selection(self):
