@@ -75,6 +75,7 @@ class CustomEditor(tk.Frame):
         self.canvas.bind("<Configure>", self.on_canvas_resize)
         self.canvas.bind("<MouseWheel>", self.ctx.input.on_mousewheel)
         self.canvas.bind("<Button-1>", self.ctx.input.on_leftclick)
+        self.canvas.bind("<B1-Motion>", self.ctx.input.on_left_drag)
         self.bind_all("<Key>", self.ctx.input.on_key)
         
         # initial set up
@@ -462,13 +463,14 @@ class InputManager:
         
     def on_leftclick(self, event):
         self.ctx.document.move_cursor_to_mouse(event.x, event.y)
-        self.ctx.document.set_selection(event.x, event.y)
-        #self.ctx.document.clear_selection()
+        self.ctx.document.clear_selection()
         self.ctx.renderer.render()
         return "break" 
         
-    def on_leftclick_drag(self, event): #TODO
-        pass
+    def on_left_drag(self, event): #TODO
+        self.ctx.document.set_selection(event.x, event.y)
+        self.ctx.renderer.render()
+        return "break"
         
 # --- basic window ---
 root = tk.Tk()
