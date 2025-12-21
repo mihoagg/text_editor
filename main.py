@@ -5,6 +5,7 @@ from enum import Enum, auto
 
 
 # TODO: 
+# snap cursor after selection
 # create editor state class that store scroll, cursor, selection, and undo redo
 # split input and delete into document layer
 # mouse support for cursor movement and text selection
@@ -328,15 +329,9 @@ class DocumentModel:
             pass
         
     def move_cursor_to_mouse(self, mouse_x, mouse_y): 
-        #calculate which line clicked
-        self.cursor_y_index = (mouse_y + self.ctx.scroll.scroll_y) // self.ctx.renderer.line_height
-        #which char is clicked
-        self.cursor_x_index = (mouse_x - self.ctx.renderer.left_padding) // self.ctx.renderer.char_width
-        #relative x within the character
-        relative_x = (mouse_x - self.ctx.renderer.left_padding) % self.ctx.renderer.char_width
-        if relative_x > self.ctx.renderer.char_width / 2:
-            # place cursor after this character
-            self.cursor_x_index += 1
+        self.cursor_x_index, self.cursor_y_index = self.coords_to_index(
+        mouse_x, mouse_y + self.ctx.scroll.scroll_y
+        )
         self.normalize_cursor_position()  
         self.ctx.scroll.keep_cursor_in_view()
     
@@ -363,6 +358,7 @@ class DocumentModel:
         if self.selection_index['anchor'] is None:
             self.selection_index['anchor'] = (column, line)
         self.selection_index['active'] = (column, line + 1)
+        self.move_cursor_to_mouse(cursor_x, cursor_y)
         
     def clear_selection(self):
         # Clear previous selection
