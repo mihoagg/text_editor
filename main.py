@@ -65,14 +65,15 @@ class CustomEditor(tk.Frame):
         # --- bindings ---
         self.canvas.bind("<Configure>", self.on_canvas_resize)
         self.canvas.bind("<MouseWheel>", self.ctx.input.on_mousewheel)
-        self.canvas.bind("<Button-1>", self.ctx.input.on_leftclick)
+        self.canvas.bind("<Button-1>", self.left_mouse_handler)
         self.bind_all("<Key>", self.ctx.input.on_key)
         
         # initial set up
         self.ctx.document.lines = self.ctx.document.parse_text()
         self.ctx.document.trailing_line()
-        # test box
-        # self.canvas.create_rectangle(50, 50, 150, 150, fill="lightblue", outline="black")
+        
+    def left_mouse_handler(self, event):
+        self.ctx.input.on_leftclick
 
     def on_canvas_resize(self, event):
         self.ctx.scroll.calculate_visible_lines()
@@ -94,9 +95,7 @@ class Renderer:
         # self.top_padding = 20
         
     def render_text(self):
-        # text
         y = (self.ctx.scroll.line_start_index * self.line_height) - self.ctx.scroll.scroll_y
-        self.ctx.canvas.create_line(0, y, 500, y, fill="black")
         for line in range(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index):
             x = self.left_padding
             for ch in self.ctx.document.lines[line]:
@@ -110,20 +109,84 @@ class Renderer:
             y += self.line_height
     
     def render_cursor(self):
-        # cursor
-        cursor_x = self.left_padding + self.ctx.document.cursor_x_index * self.char_width
-        cursor_y = self.ctx.document.cursor_y_index * self.line_height - self.ctx.scroll.scroll_y
-        self.ctx.canvas.create_line(
-            cursor_x, cursor_y,
-            cursor_x, cursor_y + self.line_height,
-            fill="black",
-        ) 
+        if self.ctx.document.cursor_y_index in range(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index):
+            cursor_x = self.left_padding + self.ctx.document.cursor_x_index * self.char_width
+            cursor_y = self.ctx.document.cursor_y_index * self.line_height - self.ctx.scroll.scroll_y
+            self.ctx.canvas.create_line(
+                cursor_x, cursor_y,
+                cursor_x, cursor_y + self.line_height,
+                fill="black",
+            ) 
 
-    def move_selected_background(self):
-        pass
+    def render_select(self):
+        column_start, line_start = self.ctx.document.selection_index['start']
+        column_end, line_end = self.ctx.document.selection_index['end']
+        for line in range(line_start, line_end):
+            if line in range(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index):
+                # selection in only 1 line
+                if line == line_start and line == line_end - 1:
+                    self.ctx.canvas.create_rectangle(
+                        #x1
+                        column_start * self.char_width + self.left_padding,
+                        #y1
+                        line * self.line_height - self.ctx.scroll.scroll_y,
+                        #x2
+                        column_end * self.char_width + self.left_padding,
+                        #y2
+                        line * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
+                        fill="#CCE8FF",
+                        outline=""
+                    )
+                # line at start index
+                elif line == line_start:
+                    self.ctx.canvas.create_rectangle(
+                        #x1
+                        column_start * self.char_width + self.left_padding,
+                        #y1
+                        line * self.line_height - self.ctx.scroll.scroll_y,
+                        #x2
+                        len(self.ctx.document.lines[line]) * self.char_width + self.left_padding,
+                        #y2
+                        line * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
+                        fill="#CCE8FF",
+                        outline=""
+                    )
+                # line at end index 
+                # - 1 for line_end is exclusive
+                elif line == line_end - 1:
+                    self.ctx.canvas.create_rectangle(
+                        #x1
+                        self.left_padding,
+                        #y1
+                        line * self.line_height - self.ctx.scroll.scroll_y,
+                        #x2
+                        column_end * self.char_width + self.left_padding,
+                        #y2
+                        line * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
+                        fill="#CCE8FF",
+                        outline=""
+                    )
+                #else print the whole line
+                else:
+                    self.ctx.canvas.create_rectangle(
+                        #x1
+                        self.left_padding,
+                        #y1
+                        line * self.line_height - self.ctx.scroll.scroll_y,
+                        #x2
+                        len(self.ctx.document.lines[line]) * self.char_width + self.left_padding,
+                        #y2
+                        line * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
+                        fill="#CCE8FF",
+                        outline=""
+                    )
+    
+    # def move_selected_area(self):
+    #     pass
     
     def render(self):
         self.ctx.canvas.delete("all") 
+        self.render_select()
         self.render_text()
         self.render_cursor()
         
@@ -132,13 +195,14 @@ class DocumentModel:
         self.ctx = ctx
         self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n\na\nb\nc\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\nend"
         self.lines = []
+        #TODO: reformat cursor index
         self.cursor_x_index = 0  # position of the cursor in the text
         self.cursor_y_index = 0
         self.preferred_cursor_x = self.cursor_x_index
         #selection
         self.selection_index = {
-            'start': (0,0),
-            'end': (0,5)
+            'start': (0,0), #x,y
+            'end': (1,5) #exclusive end index
             }
 
     def parse_text(self):
@@ -252,6 +316,9 @@ class DocumentModel:
         self.normalize_cursor_position()  
         self.ctx.scroll.keep_cursor_in_view()
         
+    def select_text(self):
+        pass
+        
 class ScrollManager: 
     def __init__(self, ctx: EditorContext):
         self.ctx = ctx
@@ -300,7 +367,6 @@ class InputManager:
     def __init__(self, ctx: EditorContext):
         self.ctx = ctx      
         
-    # input handling        
     def on_key(self, event):
         movement_keys = {
             "Left": Direction.LEFT,
@@ -343,7 +409,6 @@ class InputManager:
         if event.delta:
             self.ctx.scroll.move_scroll(-1 * (event.delta // 120) * self.ctx.renderer.line_height) 
             self.ctx.renderer.render()
-            # print("mousewheel moved and rendered")
             return "break"
         
     def on_leftclick(self, event):
@@ -351,6 +416,8 @@ class InputManager:
         self.ctx.renderer.render()
         return "break" 
         
+    def on_on_leftclick_hold(self, event): #TODO
+        self.ctx.document.selec_text()
 
 # --- basic window ---
 root = tk.Tk()
