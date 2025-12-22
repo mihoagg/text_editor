@@ -387,22 +387,28 @@ class DocumentModel:
             column_start = active_x
             column_end   = anchor_x
         
-        for line in range(line_start, line_end + 1):
+        for line in range(line_end, line_start - 1, -1):
                 # selection in only 1 line
                 if line == line_start and line == line_end:
                     current_line = self.lines[line]
                     current_line = current_line[: column_start] + current_line[column_end :]
                     self.lines[line] = current_line
+                    break
+                # line at end index 
+                if line == line_end:
+                    end_tail = self.lines[line][column_end:]
+                    self.lines.pop(line)
                 # line at start index
                 elif line == line_start:
-                    pass
-                # line at end index 
-                elif line == line_end:
-                    pass
+                    current_line = self.lines[line]
+                    current_line = current_line[: column_start] + end_tail
+                    self.lines[line] = current_line
+                
                 #else delete the whole line
                 else:
-                    pass
-                self.normalize_cursor_position()
+                    print(self.lines[line], line)
+                    self.lines.pop(line)
+        self.normalize_cursor_position()
         self.cursor_x_index = column_start
         self.cursor_y_index = line_start
         self.ctx.scroll.calculate_visible_lines()
