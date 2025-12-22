@@ -5,10 +5,10 @@ from enum import Enum, auto
 
 
 # TODO: 
-# snap cursor after selection
+
 # create editor state class that store scroll, cursor, selection, and undo redo
-# split input and delete into document layer
-# mouse support for cursor movement and text selection
+# split input and delete into document layer 
+
 # line wrapping
 # clipboard support, ctrl cvax
 # text highlight
@@ -22,6 +22,8 @@ from enum import Enum, auto
 
 # scroll when moving cursor out of view DONE
 # cursor renders on top padding DONE
+# snap cursor after selection DONE
+# mouse support for cursor movement and text selection DONE 
 
 # modularize:
 # maybe split render to draw_text and draw_cursor DONE
@@ -30,15 +32,10 @@ from enum import Enum, auto
 # maybe single index for cursor position instead of (x, y)
 
 
-'''
-on click: -set anchor,
-on drag: -set active,
--normalize start end by compare y first then x if y1 = y2 ,
--update document state with derived start and end,
--call render,
-'''
-
-
+# undo: 
+# functions to push change to the stack,
+# include name, what is changed and cursor pos 
+# each change have a corresponding undo function
 
 class EditorContext:
     def __init__(self):
@@ -55,6 +52,12 @@ class Direction(Enum):
     DOWN = auto()
     LINE_START = auto()
     LINE_END = auto()
+
+class Changes(Enum):
+    INSERT = auto() #also paste
+    DELETE = auto()
+    COPY = auto()
+    CUT = auto()
 
 class CustomEditor(tk.Frame):
     def __init__(self, master):
@@ -78,6 +81,7 @@ class CustomEditor(tk.Frame):
         self.canvas.bind("<Button-1>", self.ctx.input.on_leftclick)
         self.canvas.bind("<B1-Motion>", self.ctx.input.on_left_drag)
         self.bind_all("<Key>", self.ctx.input.on_key)
+        
         
         # initial set up
         self.ctx.document.lines = self.ctx.document.parse_text()
@@ -365,6 +369,58 @@ class DocumentModel:
         self.selection_index['anchor'] = None
         self.selection_index['active'] = None
         
+    def delete_selected_text(self):
+        anchor_x, anchor_y = self.selection_index['anchor']
+        active_x, active_y = self.selection_index['active']
+        
+        #normalize start end index
+        line_start = min(anchor_y, active_y)
+        line_end   = max(anchor_y, active_y)
+        
+        if anchor_y == active_y:
+            column_start = min(anchor_x, active_x)
+            column_end   = max(anchor_x, active_x)
+        elif anchor_y < active_y:
+            column_start = anchor_x
+            column_end   = active_x
+        else:
+            column_start = active_x
+            column_end   = anchor_x
+        
+        for line in range(line_start, line_end + 1):
+                # selection in only 1 line
+                if line == line_start and line == line_end:
+                    current_line = self.lines[line]
+                    current_line = current_line[: column_start] + current_line[column_end :]
+                    self.lines[line] = current_line
+                # line at start index
+                elif line == line_start:
+                    pass
+                # line at end index 
+                elif line == line_end:
+                    pass
+                #else delete the whole line
+                else:
+                    pass
+                self.normalize_cursor_position()
+        self.cursor_x_index = column_start
+        self.cursor_y_index = line_start
+        self.ctx.scroll.calculate_visible_lines()
+        self.clear_selection()
+    
+    def replace_selected_text(self):
+        # delete text
+        # move cursor to match delete
+        # insert new text
+        # move cursor to new text
+        pass    
+    
+    def delete(self):
+        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
+            self.delete_selected_text()
+        else:
+            self.delete_at_cursor()
+    
 class ScrollManager: 
     def __init__(self, ctx: EditorContext):
         self.ctx = ctx
@@ -433,7 +489,7 @@ class InputManager:
             return "break"
         
         if event.keysym == "BackSpace":
-            self.ctx.document.delete_at_cursor()
+            self.ctx.document.delete()
             self.ctx.renderer.render()
             return "break" 
         
