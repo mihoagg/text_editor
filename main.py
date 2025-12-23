@@ -342,7 +342,7 @@ class DocumentModel:
     # raw pixels to text index
     def coords_to_index(self, x=0, y=0):
         line_index = y // self.ctx.renderer.line_height
-        line_index = min(max(line_index, 0), len(self.lines))
+        line_index = min(max(line_index, 0), len(self.lines) - 1)
         column_index = (x - self.ctx.renderer.left_padding) // self.ctx.renderer.char_width
         column_index = min(max(column_index, 0), len(self.lines[line_index]))
         # check if cursor is past half a character
@@ -363,6 +363,7 @@ class DocumentModel:
             self.selection_index['anchor'] = (column, line)
         self.selection_index['active'] = (column, line)
         self.move_cursor_to_mouse(cursor_x, cursor_y)
+        self.ctx.scroll.keep_cursor_in_view()
         
     def clear_selection(self):
         # Clear previous selection
@@ -411,6 +412,7 @@ class DocumentModel:
         self.cursor_x_index = column_start
         self.cursor_y_index = line_start
         self.ctx.scroll.calculate_visible_lines()
+        self.ctx.scroll.keep_cursor_in_view()
         self.clear_selection()
     
     def replace_selected_text(self, str):
@@ -512,6 +514,7 @@ class InputManager:
                     self.ctx.document.lines.insert(i + 1, new_line)
             self.ctx.document.move_cursor(Direction.DOWN)
             self.ctx.document.move_cursor(Direction.LINE_START)
+            self.ctx.scroll.calculate_visible_lines()
             self.ctx.renderer.render()
             return "break"  
         
