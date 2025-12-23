@@ -294,11 +294,11 @@ class DocumentModel:
             self.cursor_x_index = max(self.cursor_x_index, 0)
             self.cursor_x_index = min(self.cursor_x_index, len(line))    
     
-    def insert_at_cursor(self, ch):
+    def insert_at_cursor(self, str):
         line = self.lines[self.cursor_y_index]
         self.lines[self.cursor_y_index] = (
                 line[: self.cursor_x_index]
-                + ch
+                + str
                 + line[self.cursor_x_index :]
             )
         self.trailing_line()
@@ -406,7 +406,6 @@ class DocumentModel:
                 
                 #else delete the whole line
                 else:
-                    print(self.lines[line], line)
                     self.lines.pop(line)
         self.normalize_cursor_position()
         self.cursor_x_index = column_start
@@ -414,18 +413,21 @@ class DocumentModel:
         self.ctx.scroll.calculate_visible_lines()
         self.clear_selection()
     
-    def replace_selected_text(self):
-        # delete text
-        # move cursor to match delete
-        # insert new text
-        # move cursor to new text
-        pass    
+    def replace_selected_text(self, str):
+        self.delete_selected_text()
+        self.insert_at_cursor(str)
     
     def delete(self):
         if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
             self.delete_selected_text()
         else:
             self.delete_at_cursor()
+    
+    def insert_str(self, str):
+        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
+            self.replace_selected_text(str)
+        else:
+            self.insert_at_cursor(str)
     
 class ScrollManager: 
     def __init__(self, ctx: EditorContext):
@@ -490,7 +492,7 @@ class InputManager:
             return "break"
         
         if event.char.isprintable() and len(event.char) == 1: 
-            self.ctx.document.insert_at_cursor(event.char)
+            self.ctx.document.insert_str(event.char)
             self.ctx.renderer.render()
             return "break"
         
