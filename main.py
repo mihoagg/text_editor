@@ -44,6 +44,7 @@ class EditorContext:
         self.document = None
         self.scroll = None
         self.input = None
+        self.clipboard = None
         
 class Direction(Enum):
     LEFT = auto()
@@ -53,8 +54,8 @@ class Direction(Enum):
     LINE_START = auto()
     LINE_END = auto()
 
-class Changes(Enum):
-    INSERT = auto() #also paste
+class Changes(Enum): # changes for undo, redo
+    INSERT = auto() # also paste
     DELETE = auto()
     COPY = auto()
     CUT = auto()
@@ -75,12 +76,17 @@ class CustomEditor(tk.Frame):
         self.ctx.input = InputManager(self.ctx)
         self.ctx.canvas = self.canvas
         
+        # --- services ---
+        self.ctx.clipboard = ClipboardService(master)
+        
         # --- bindings ---
         self.canvas.bind("<Configure>", self.on_canvas_resize)
-        self.canvas.bind("<MouseWheel>", self.ctx.input.on_mousewheel)
         self.canvas.bind("<Button-1>", self.ctx.input.on_leftclick)
         self.canvas.bind("<B1-Motion>", self.ctx.input.on_left_drag)
+        self.canvas.bind("<MouseWheel>", self.ctx.input.on_mousewheel)
         self.bind_all("<Key>", self.ctx.input.on_key)
+        self.bind_all("<Control-c>", self.ctx.input.on_ctrl_c)
+        self.bind_all("<Control-v>", self.ctx.input.on_ctrl_v)
         
         
         # initial set up
@@ -91,6 +97,27 @@ class CustomEditor(tk.Frame):
         self.ctx.scroll.calculate_visible_lines()
         self.ctx.renderer.render()
 
+class ClipboardService:
+    def __init__(self, root):
+        self.root = root
+        
+    def copy(self, str):
+        root.clipboard_clear()
+        root.clipboard_append(str)
+    
+    def copy_test(self):
+        str = "a\nb\nc"
+        print("copy test")
+        root.clipboard_clear()
+        root.clipboard_append(str)
+        
+    def paste(self):
+        try:
+            text = root.clipboard_get()
+            return text
+        except tk.TclError:
+            return
+        
 class Renderer:
     def __init__(self, ctx: EditorContext):
         self.ctx = ctx
@@ -147,66 +174,74 @@ class Renderer:
         else:
             column_start = active_x
             column_end   = anchor_x
+            
+        # clamp selection to visible lines
+        line_start = max(line_start, self.ctx.scroll.line_start_index)
+        line_end   = min(line_end, self.ctx.scroll.line_end_index - 1)
+        
+        if line_start > line_end:
+            return
+        
+        # selection in only 1 line
+        if line_start == line_end:
+            self.ctx.canvas.create_rectangle(
+                #x1
+                column_start * self.char_width + self.left_padding,
+                #y1
+                line_start * self.line_height - self.ctx.scroll.scroll_y,
+                #x2
+                column_end * self.char_width + self.left_padding,
+                #y2
+                line_end * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
+                fill="#CCE8FF",
+                outline=""
+            )
+            return
         
         for line in range(line_start, line_end + 1):
-            if line in range(self.ctx.scroll.line_start_index, self.ctx.scroll.line_end_index):
-                # selection in only 1 line
-                if line == line_start and line == line_end:
-                    self.ctx.canvas.create_rectangle(
-                        #x1
-                        column_start * self.char_width + self.left_padding,
-                        #y1
-                        line * self.line_height - self.ctx.scroll.scroll_y,
-                        #x2
-                        column_end * self.char_width + self.left_padding,
-                        #y2
-                        line * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
-                        fill="#CCE8FF",
-                        outline=""
-                    )
-                # line at start index
-                elif line == line_start:
-                    self.ctx.canvas.create_rectangle(
-                        #x1
-                        column_start * self.char_width + self.left_padding,
-                        #y1
-                        line * self.line_height - self.ctx.scroll.scroll_y,
-                        #x2
-                        len(self.ctx.document.lines[line]) * self.char_width + self.left_padding,
-                        #y2
-                        line * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
-                        fill="#CCE8FF",
-                        outline=""
-                    )
-                # line at end index 
-                # - 1 for line_end is exclusive
-                elif line == line_end:
-                    self.ctx.canvas.create_rectangle(
-                        #x1
-                        self.left_padding,
-                        #y1
-                        line * self.line_height - self.ctx.scroll.scroll_y,
-                        #x2
-                        column_end * self.char_width + self.left_padding,
-                        #y2
-                        line * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
-                        fill="#CCE8FF",
-                        outline=""
-                    )
-                #else print the whole line
-                else:
-                    self.ctx.canvas.create_rectangle(
-                        #x1
-                        self.left_padding,
-                        #y1
-                        line * self.line_height - self.ctx.scroll.scroll_y,
-                        #x2
-                        len(self.ctx.document.lines[line]) * self.char_width + self.left_padding,
-                        #y2
-                        line * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
-                        fill="#CCE8FF",
-                        outline=""
-                    )
+            # line at start index
+            if line == line_start:
+                self.ctx.canvas.create_rectangle(
+                    #x1
+                    column_start * self.char_width + self.left_padding,
+                    #y1
+                    line * self.line_height - self.ctx.scroll.scroll_y,
+                    #x2
+                    len(self.ctx.document.lines[line]) * self.char_width + self.left_padding,
+                    #y2
+                    line * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
+                    fill="#CCE8FF",
+                    outline=""
+                )
+            # line at end index 
+            # - 1 for line_end is exclusive
+            elif line == line_end:
+                self.ctx.canvas.create_rectangle(
+                    #x1
+                    self.left_padding,
+                    #y1
+                    line * self.line_height - self.ctx.scroll.scroll_y,
+                    #x2
+                    column_end * self.char_width + self.left_padding,
+                    #y2
+                    line * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
+                    fill="#CCE8FF",
+                    outline=""
+                )
+            #else print the whole line
+            else:
+                self.ctx.canvas.create_rectangle(
+                    #x1
+                    self.left_padding,
+                    #y1
+                    line * self.line_height - self.ctx.scroll.scroll_y,
+                    #x2
+                    len(self.ctx.document.lines[line]) * self.char_width + self.left_padding,
+                    #y2
+                    line * self.line_height - self.ctx.scroll.scroll_y + self.line_height,
+                    fill="#CCE8FF",
+                    outline=""
+                )
     
     # def move_selected_area(self):
     #     pass
@@ -387,27 +422,27 @@ class DocumentModel:
         else:
             column_start = active_x
             column_end   = anchor_x
-        
-        for line in range(line_end, line_start - 1, -1):
-                # selection in only 1 line
-                if line == line_start and line == line_end:
-                    current_line = self.lines[line]
-                    current_line = current_line[: column_start] + current_line[column_end :]
-                    self.lines[line] = current_line
-                    break
-                # line at end index 
-                if line == line_end:
-                    end_tail = self.lines[line][column_end:]
-                    self.lines.pop(line)
-                # line at start index
-                elif line == line_start:
-                    current_line = self.lines[line]
-                    current_line = current_line[: column_start] + end_tail
-                    self.lines[line] = current_line
-                
-                #else delete the whole line
-                else:
-                    self.lines.pop(line)
+        # selection in only 1 line
+        if line_start == line_end:
+            current_line = self.lines[line_start]
+            current_line = current_line[: column_start] + current_line[column_end :]
+            self.lines[line_start] = current_line
+            
+        else:
+            for line in range(line_end, line_start - 1, -1):
+                    # line at end index 
+                    if line == line_end:
+                        end_tail = self.lines[line][column_end:]
+                        self.lines.pop(line)
+                    # line at start index
+                    elif line == line_start:
+                        current_line = self.lines[line]
+                        current_line = current_line[: column_start] + end_tail
+                        self.lines[line] = current_line
+                    
+                    #else delete the whole line
+                    else:
+                        self.lines.pop(line)
         self.normalize_cursor_position()
         self.cursor_x_index = column_start
         self.cursor_y_index = line_start
@@ -431,6 +466,45 @@ class DocumentModel:
         else:
             self.insert_at_cursor(str)
     
+    def copy_text(self):
+        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
+            anchor_x, anchor_y = self.selection_index['anchor']
+        active_x, active_y = self.selection_index['active']
+        
+        #normalize start end index
+        line_start = min(anchor_y, active_y)
+        line_end   = max(anchor_y, active_y)
+        
+        if anchor_y == active_y:
+            column_start = min(anchor_x, active_x)
+            column_end   = max(anchor_x, active_x)
+        elif anchor_y < active_y:
+            column_start = anchor_x
+            column_end   = active_x
+        else:
+            column_start = active_x
+            column_end   = anchor_x
+        # add selected text from each line
+        copied_text = []
+        # selection in only 1 line
+        if line_start == line_end:
+            current_line = self.lines[line_start]
+            self.ctx.clipboard.copy(current_line[column_start : column_end])
+            return
+        for line in range(line_start, line_end + 1):
+                current_line = self.lines[line]
+                # line at start index
+                if line == line_start:
+                    copied_text.append(current_line[column_start :])
+                # line at end index 
+                elif line == line_end:
+                    copied_text.append(current_line[: column_end])
+                #else add the whole line
+                else:
+                    copied_text.append(current_line)
+        copied_text = "\n".join(copied_text)
+        self.ctx.clipboard.copy(copied_text)
+        
 class ScrollManager: 
     def __init__(self, ctx: EditorContext):
         self.ctx = ctx
@@ -517,7 +591,13 @@ class InputManager:
             self.ctx.scroll.calculate_visible_lines()
             self.ctx.renderer.render()
             return "break"  
-        
+     
+    def on_ctrl_c(self, event=None):
+        self.ctx.document.copy_text()
+       
+    def on_ctrl_v(self, event=None):
+        self.ctx.clipboard.paste()
+    
     def on_mousewheel(self, event):
         if event.delta:
             self.ctx.scroll.move_scroll(-1 * (event.delta // 120) * self.ctx.renderer.line_height) 
@@ -530,7 +610,7 @@ class InputManager:
         self.ctx.renderer.render()
         return "break" 
         
-    def on_left_drag(self, event): #TODO
+    def on_left_drag(self, event):
         self.ctx.document.set_selection(event.x, event.y)
         self.ctx.renderer.render()
         return "break"
@@ -539,7 +619,6 @@ class InputManager:
 root = tk.Tk()
 editor = CustomEditor(root)
 editor.pack(fill=tk.BOTH, expand=True) # expand frame to fill window
-editor.pack()
 root.mainloop()
 
     
