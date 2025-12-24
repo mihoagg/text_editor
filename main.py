@@ -104,12 +104,6 @@ class ClipboardService:
     def copy(self, str):
         root.clipboard_clear()
         root.clipboard_append(str)
-    
-    def copy_test(self):
-        str = "a\nb\nc"
-        print("copy test")
-        root.clipboard_clear()
-        root.clipboard_append(str)
         
     def paste(self):
         try:
@@ -337,8 +331,10 @@ class DocumentModel:
                 + line[self.cursor_x_index :]
             )
         self.trailing_line()
-        self.move_cursor(Direction.RIGHT)
-         
+        for ch in str:
+            self.move_cursor(Direction.RIGHT)
+        
+        
     def delete_at_cursor(self):
         text_after_cursor = ""
         if self.cursor_x_index > 0:
@@ -504,7 +500,13 @@ class DocumentModel:
                     copied_text.append(current_line)
         copied_text = "\n".join(copied_text)
         self.ctx.clipboard.copy(copied_text)
+     
+    def paste_text(self): # TODO
+        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
+            self.delete_selected_text()
+        self.insert_at_cursor(self.ctx.clipboard.paste())
         
+       
 class ScrollManager: 
     def __init__(self, ctx: EditorContext):
         self.ctx = ctx
@@ -596,7 +598,9 @@ class InputManager:
         self.ctx.document.copy_text()
        
     def on_ctrl_v(self, event=None):
-        self.ctx.clipboard.paste()
+        self.ctx.document.paste_text()
+        self.ctx.renderer.render()
+        return "break" 
     
     def on_mousewheel(self, event):
         if event.delta:
