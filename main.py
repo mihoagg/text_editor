@@ -45,6 +45,7 @@ class EditorContext:
         self.scroll = None
         self.input = None
         self.clipboard = None
+        self.editor = None
         
 class Direction(Enum):
     LEFT = auto()
@@ -74,11 +75,15 @@ class CustomEditor(tk.Frame):
         self.ctx.document = DocumentModel(self.ctx)
         self.ctx.scroll = ScrollManager(self.ctx)
         self.ctx.input = InputManager(self.ctx)
+        self.ctx.editor = self
         self.ctx.canvas = self.canvas
         
         # --- services ---
         self.ctx.clipboard = ClipboardService(master)
         
+        # --- command system ---
+        self.command_manager = CommandManager()
+                
         # --- bindings ---
         self.canvas.bind("<Configure>", self.on_canvas_resize)
         self.canvas.bind("<Button-1>", self.ctx.input.on_leftclick)
@@ -87,6 +92,9 @@ class CustomEditor(tk.Frame):
         self.bind_all("<Key>", self.ctx.input.on_key)
         self.bind_all("<Control-c>", self.ctx.input.on_ctrl_c)
         self.bind_all("<Control-v>", self.ctx.input.on_ctrl_v)
+        self.bind_all("<Control-z>", self.ctx.input.on_ctrl_z)
+        self.bind_all("<Control-t>", self.ctx.input.on_ctrl_t) # text
+
         
         
         # initial set up
@@ -111,6 +119,305 @@ class ClipboardService:
             return text
         except tk.TclError:
             return
+
+class Command:
+    # for commander pattern
+    # must support execute/undo for each command
+    def execute(self):
+        pass
+
+    def undo(self):
+        pass
+    
+class InsertCommand(Command):
+    def __init__(self, doc: DocumentModel, text: str):
+        self.doc = doc
+        self.text = text
+        self.inserted_str = ""
+        self.str_end = (0, 0)
+    def execute(self):
+        self.doc.insert_at_cursor(self.text)
+        self.inserted_str = self.text
+        self.str_end = (self.doc.cursor_x_index, self.doc.cursor_y_index)
+    def undo(self):
+        self.doc.move_cursor_to_index(self.str_end[0], self.str_end[1])
+        self.doc.delete_at_cursor(len(self.inserted_str))
+
+class CommandManager:
+    def __init__(self):
+        self.undo_stack = []
+        
+    def execute(self, command: Command):
+        command.execute()
+        self.undo_stack.append(command)
+        
+    def undo(self):
+        if not self.undo_stack:
+            return
+        command = self.undo_stack.pop()
+        command.undo()
+      
+class DocumentModel:
+    def __init__(self, ctx: EditorContext):
+        self.ctx = ctx
+        self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n\na\nb\nc\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\nend"
+        self.lines = []
+        #TODO: reformat cursor index
+        self.cursor_x_index = 0  # position of the cursor in the text
+        self.cursor_y_index = 0
+        self.preferred_cursor_x = self.cursor_x_index
+        #selection
+        self.selection_index = {
+            'anchor': None, #x,y
+            'active': None,
+            #'direction': ""
+            }
+
+    def parse_text(self):
+        # split text into lines based on newline characters
+        lines = self.text.split("\n")
+        return lines
+    
+    def trailing_line(self):
+        if self.lines[-1] != "":
+            self.lines.append("")  # ensure there's an empty line at the end for new text  
+    
+    def get_line_number(self):
+        return len(self.lines)
+    
+    def move_cursor(self, direction: Direction):
+        if direction == Direction.LEFT:
+            if self.cursor_x_index > 0:
+                self.cursor_x_index -= 1
+            elif self.cursor_x_index == 0 and self.cursor_y_index > 0:
+                self.cursor_y_index -= 1
+                self.cursor_x_index = len(self.lines[self.cursor_y_index])
+            self.normalize_cursor_position()
+            self.preferred_cursor_x = self.cursor_x_index
+        elif direction == Direction.RIGHT:
+            if self.cursor_x_index == len(self.lines[self.cursor_y_index]):
+                self.cursor_y_index += 1
+                self.cursor_x_index = 0
+            else: 
+                self.cursor_x_index += 1
+            self.normalize_cursor_position()
+            self.preferred_cursor_x = self.cursor_x_index
+        elif direction == Direction.UP:
+            self.cursor_y_index -= 1
+            self.normalize_cursor_position(use_preferred=True)
+        elif direction == Direction.DOWN:
+            self.cursor_y_index += 1
+            self.normalize_cursor_position(use_preferred=True)
+        elif direction == Direction.LINE_START:
+            self.cursor_x_index = 0
+            self.normalize_cursor_position()
+            self.preferred_cursor_x = self.cursor_x_index
+        elif direction == Direction.LINE_END:
+            line = self.lines[self.cursor_y_index]
+            self.cursor_x_index = len(line)
+            self.normalize_cursor_position()
+            self.preferred_cursor_x = self.cursor_x_index
+        self.ctx.scroll.keep_cursor_in_view()
+        
+    def normalize_cursor_position(self, use_preferred: bool = False):
+        # Vertical bounds
+        self.cursor_y_index = max(self.cursor_y_index, 0)
+        self.cursor_y_index = min(self.cursor_y_index, self.get_line_number() - 1)   
+        
+        line = self.lines[self.cursor_y_index] # current line after vertical normalization to avoid index errors
+        
+        # Horizontal bounds
+        if use_preferred:
+            self.cursor_x_index = min(self.preferred_cursor_x, len(line))
+        else:
+            self.cursor_x_index = max(self.cursor_x_index, 0)
+            self.cursor_x_index = min(self.cursor_x_index, len(line))    
+    
+    def insert_at_cursor(self, str):
+        line = self.lines[self.cursor_y_index]
+        self.lines[self.cursor_y_index] = (
+                line[: self.cursor_x_index]
+                + str
+                + line[self.cursor_x_index :]
+            )
+        self.trailing_line()
+        for ch in str:
+            self.move_cursor(Direction.RIGHT)
+        
+        
+    def delete_at_cursor(self, i: int):
+        for j in range(i):
+            text_after_cursor = ""
+            if self.cursor_x_index > 0:
+                current_line = self.lines[self.cursor_y_index]
+                text_after_cursor = current_line[self.cursor_x_index :]
+                current_line = current_line[: self.cursor_x_index - 1] + current_line[self.cursor_x_index :]
+                self.lines[self.cursor_y_index] = current_line
+                self.move_cursor(Direction.LEFT) 
+            elif self.cursor_x_index == 0 and self.cursor_y_index > 0:
+                current_line = self.lines[self.cursor_y_index]
+                text_after_cursor = current_line[self.cursor_x_index :]
+                previous_line = self.lines[self.cursor_y_index - 1]
+                # merge lines
+                previous_line = previous_line + text_after_cursor
+                #move cursor
+                self.move_cursor(Direction.LEFT)
+                #update buffer
+                self.lines[self.cursor_y_index] = previous_line
+                #delete line
+                self.lines.pop(self.cursor_y_index + 1)
+                #recalculate visable lines            
+            elif self.cursor_x_index == 0 and self.cursor_y_index == 0: #if line empty
+                pass
+        self.ctx.scroll.calculate_visible_lines()
+    
+    def move_cursor_to_index(self, x, y):
+        self.cursor_x_index = x
+        self.cursor_y_index = y
+        self.normalize_cursor_position()  
+        
+    def move_cursor_to_mouse(self, mouse_x, mouse_y): 
+        self.cursor_x_index, self.cursor_y_index = self.coords_to_index(
+        mouse_x, mouse_y + self.ctx.scroll.scroll_y
+        )
+        self.normalize_cursor_position()  
+        self.ctx.scroll.keep_cursor_in_view()
+    
+    # raw pixels to text index
+    def coords_to_index(self, x=0, y=0):
+        line_index = y // self.ctx.renderer.line_height
+        line_index = min(max(line_index, 0), len(self.lines) - 1)
+        column_index = (x - self.ctx.renderer.left_padding) // self.ctx.renderer.char_width
+        column_index = min(max(column_index, 0), len(self.lines[line_index]))
+        # check if cursor is past half a character
+        char_start_x = self.ctx.renderer.left_padding + column_index * self.ctx.renderer.char_width
+        if x - char_start_x > self.ctx.renderer.char_width / 2:
+            column_index += 1
+            column_index = min(column_index, len(self.lines[line_index]))
+        return column_index, line_index
+        
+    def screen_coords_to_index(self, screen_x=0, screen_y=0):
+        doc_x = screen_x
+        doc_y = screen_y + self.ctx.scroll.scroll_y
+        return self.coords_to_index(doc_x, doc_y)
+    
+    def set_selection(self, cursor_x, cursor_y):
+        column, line = self.screen_coords_to_index(cursor_x, cursor_y)
+        if self.selection_index['anchor'] is None:
+            self.selection_index['anchor'] = (column, line)
+        self.selection_index['active'] = (column, line)
+        self.move_cursor_to_mouse(cursor_x, cursor_y)
+        self.ctx.scroll.keep_cursor_in_view()
+        
+    def clear_selection(self):
+        # Clear previous selection
+        self.selection_index['anchor'] = None
+        self.selection_index['active'] = None
+        
+    def delete_selected_text(self):
+        anchor_x, anchor_y = self.selection_index['anchor']
+        active_x, active_y = self.selection_index['active']
+        
+        #normalize start end index
+        line_start = min(anchor_y, active_y)
+        line_end   = max(anchor_y, active_y)
+        
+        if anchor_y == active_y:
+            column_start = min(anchor_x, active_x)
+            column_end   = max(anchor_x, active_x)
+        elif anchor_y < active_y:
+            column_start = anchor_x
+            column_end   = active_x
+        else:
+            column_start = active_x
+            column_end   = anchor_x
+        # selection in only 1 line
+        if line_start == line_end:
+            current_line = self.lines[line_start]
+            current_line = current_line[: column_start] + current_line[column_end :]
+            self.lines[line_start] = current_line
+            
+        else:
+            for line in range(line_end, line_start - 1, -1):
+                    # line at end index 
+                    if line == line_end:
+                        end_tail = self.lines[line][column_end:]
+                        self.lines.pop(line)
+                    # line at start index
+                    elif line == line_start:
+                        current_line = self.lines[line]
+                        current_line = current_line[: column_start] + end_tail
+                        self.lines[line] = current_line
+                    
+                    #else delete the whole line
+                    else:
+                        self.lines.pop(line)
+        self.normalize_cursor_position()
+        self.cursor_x_index = column_start
+        self.cursor_y_index = line_start
+        self.ctx.scroll.calculate_visible_lines()
+        self.ctx.scroll.keep_cursor_in_view()
+        self.clear_selection()
+    
+    def replace_selected_text(self, str):
+        self.delete_selected_text()
+        self.insert_at_cursor(str)
+    
+    def delete(self, i= 1):
+        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
+            self.delete_selected_text()
+        else:
+            self.delete_at_cursor(i)
+    
+    def insert_str(self, str):
+        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
+            self.replace_selected_text(str)
+        else:
+            self.insert_at_cursor(str)
+    
+    def copy_text(self):
+        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
+            anchor_x, anchor_y = self.selection_index['anchor']
+        active_x, active_y = self.selection_index['active']
+        
+        #normalize start end index
+        line_start = min(anchor_y, active_y)
+        line_end   = max(anchor_y, active_y)
+        
+        if anchor_y == active_y:
+            column_start = min(anchor_x, active_x)
+            column_end   = max(anchor_x, active_x)
+        elif anchor_y < active_y:
+            column_start = anchor_x
+            column_end   = active_x
+        else:
+            column_start = active_x
+            column_end   = anchor_x
+        # add selected text from each line
+        copied_text = []
+        # selection in only 1 line
+        if line_start == line_end:
+            current_line = self.lines[line_start]
+            self.ctx.clipboard.copy(current_line[column_start : column_end])
+            return
+        for line in range(line_start, line_end + 1):
+                current_line = self.lines[line]
+                # line at start index
+                if line == line_start:
+                    copied_text.append(current_line[column_start :])
+                # line at end index 
+                elif line == line_end:
+                    copied_text.append(current_line[: column_end])
+                #else add the whole line
+                else:
+                    copied_text.append(current_line)
+        copied_text = "\n".join(copied_text)
+        self.ctx.clipboard.copy(copied_text)
+     
+    def paste_text(self): # TODO
+        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
+            self.delete_selected_text()
+        self.insert_at_cursor(self.ctx.clipboard.paste())
         
 class Renderer:
     def __init__(self, ctx: EditorContext):
@@ -247,266 +554,6 @@ class Renderer:
         self.render_text()
         self.render_cursor()
         
-class DocumentModel:
-    def __init__(self, ctx: EditorContext):
-        self.ctx = ctx
-        self.text = "Hello World\nThis is a sample text\nEach line is separated by a newline character\nPython handles this using \\n\na\nb\nc\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\nend"
-        self.lines = []
-        #TODO: reformat cursor index
-        self.cursor_x_index = 0  # position of the cursor in the text
-        self.cursor_y_index = 0
-        self.preferred_cursor_x = self.cursor_x_index
-        #selection
-        self.selection_index = {
-            'anchor': None, #x,y
-            'active': None,
-            #'direction': ""
-            }
-
-    def parse_text(self):
-        # split text into lines based on newline characters
-        lines = self.text.split("\n")
-        return lines
-    
-    def trailing_line(self):
-        if self.lines[-1] != "":
-            self.lines.append("")  # ensure there's an empty line at the end for new text  
-    
-    def get_line_number(self):
-        return len(self.lines)
-    
-    def move_cursor(self, direction: Direction):
-        if direction == Direction.LEFT:
-            if self.cursor_x_index > 0:
-                self.cursor_x_index -= 1
-            elif self.cursor_x_index == 0 and self.cursor_y_index > 0:
-                self.cursor_y_index -= 1
-                self.cursor_x_index = len(self.lines[self.cursor_y_index])
-            self.normalize_cursor_position()
-            self.preferred_cursor_x = self.cursor_x_index
-        elif direction == Direction.RIGHT:
-            if self.cursor_x_index == len(self.lines[self.cursor_y_index]):
-                self.cursor_y_index += 1
-                self.cursor_x_index = 0
-            else: 
-                self.cursor_x_index += 1
-            self.normalize_cursor_position()
-            self.preferred_cursor_x = self.cursor_x_index
-        elif direction == Direction.UP:
-            self.cursor_y_index -= 1
-            self.normalize_cursor_position(use_preferred=True)
-        elif direction == Direction.DOWN:
-            self.cursor_y_index += 1
-            self.normalize_cursor_position(use_preferred=True)
-        elif direction == Direction.LINE_START:
-            self.cursor_x_index = 0
-            self.normalize_cursor_position()
-            self.preferred_cursor_x = self.cursor_x_index
-        elif direction == Direction.LINE_END:
-            line = self.lines[self.cursor_y_index]
-            self.cursor_x_index = len(line)
-            self.normalize_cursor_position()
-            self.preferred_cursor_x = self.cursor_x_index
-        self.ctx.scroll.keep_cursor_in_view()
-        
-    def normalize_cursor_position(self, use_preferred: bool = False):
-        # Vertical bounds
-        self.cursor_y_index = max(self.cursor_y_index, 0)
-        self.cursor_y_index = min(self.cursor_y_index, self.get_line_number() - 1)   
-        
-        line = self.lines[self.cursor_y_index] # current line after vertical normalization to avoid index errors
-        
-        # Horizontal bounds
-        if use_preferred:
-            self.cursor_x_index = min(self.preferred_cursor_x, len(line))
-        else:
-            self.cursor_x_index = max(self.cursor_x_index, 0)
-            self.cursor_x_index = min(self.cursor_x_index, len(line))    
-    
-    def insert_at_cursor(self, str):
-        line = self.lines[self.cursor_y_index]
-        self.lines[self.cursor_y_index] = (
-                line[: self.cursor_x_index]
-                + str
-                + line[self.cursor_x_index :]
-            )
-        self.trailing_line()
-        for ch in str:
-            self.move_cursor(Direction.RIGHT)
-        
-        
-    def delete_at_cursor(self):
-        text_after_cursor = ""
-        if self.cursor_x_index > 0:
-            current_line = self.lines[self.cursor_y_index]
-            text_after_cursor = current_line[self.cursor_x_index :]
-            current_line = current_line[: self.cursor_x_index - 1] + current_line[self.cursor_x_index :]
-            self.lines[self.cursor_y_index] = current_line
-            self.move_cursor(Direction.LEFT)
-        
-        elif self.cursor_x_index == 0 and self.cursor_y_index > 0:
-            current_line = self.lines[self.cursor_y_index]
-            text_after_cursor = current_line[self.cursor_x_index :]
-            previous_line = self.lines[self.cursor_y_index - 1]
-            # merge lines
-            previous_line = previous_line + text_after_cursor
-            #move cursor
-            self.move_cursor(Direction.LEFT)
-            #update buffer
-            self.lines[self.cursor_y_index] = previous_line
-            #delete line
-            self.lines.pop(self.cursor_y_index + 1)
-            #recalculate visable lines
-            self.ctx.scroll.calculate_visible_lines()
-            
-            
-        elif self.cursor_x_index == 0 and self.cursor_y_index == 0: #TODO delete if line empty
-            pass
-        
-    def move_cursor_to_mouse(self, mouse_x, mouse_y): 
-        self.cursor_x_index, self.cursor_y_index = self.coords_to_index(
-        mouse_x, mouse_y + self.ctx.scroll.scroll_y
-        )
-        self.normalize_cursor_position()  
-        self.ctx.scroll.keep_cursor_in_view()
-    
-    # raw pixels to text index
-    def coords_to_index(self, x=0, y=0):
-        line_index = y // self.ctx.renderer.line_height
-        line_index = min(max(line_index, 0), len(self.lines) - 1)
-        column_index = (x - self.ctx.renderer.left_padding) // self.ctx.renderer.char_width
-        column_index = min(max(column_index, 0), len(self.lines[line_index]))
-        # check if cursor is past half a character
-        char_start_x = self.ctx.renderer.left_padding + column_index * self.ctx.renderer.char_width
-        if x - char_start_x > self.ctx.renderer.char_width / 2:
-            column_index += 1
-            column_index = min(column_index, len(self.lines[line_index]))
-        return column_index, line_index
-        
-    def screen_coords_to_index(self, screen_x=0, screen_y=0):
-        doc_x = screen_x
-        doc_y = screen_y + self.ctx.scroll.scroll_y
-        return self.coords_to_index(doc_x, doc_y)
-    
-    def set_selection(self, cursor_x, cursor_y):
-        column, line = self.screen_coords_to_index(cursor_x, cursor_y)
-        if self.selection_index['anchor'] is None:
-            self.selection_index['anchor'] = (column, line)
-        self.selection_index['active'] = (column, line)
-        self.move_cursor_to_mouse(cursor_x, cursor_y)
-        self.ctx.scroll.keep_cursor_in_view()
-        
-    def clear_selection(self):
-        # Clear previous selection
-        self.selection_index['anchor'] = None
-        self.selection_index['active'] = None
-        
-    def delete_selected_text(self):
-        anchor_x, anchor_y = self.selection_index['anchor']
-        active_x, active_y = self.selection_index['active']
-        
-        #normalize start end index
-        line_start = min(anchor_y, active_y)
-        line_end   = max(anchor_y, active_y)
-        
-        if anchor_y == active_y:
-            column_start = min(anchor_x, active_x)
-            column_end   = max(anchor_x, active_x)
-        elif anchor_y < active_y:
-            column_start = anchor_x
-            column_end   = active_x
-        else:
-            column_start = active_x
-            column_end   = anchor_x
-        # selection in only 1 line
-        if line_start == line_end:
-            current_line = self.lines[line_start]
-            current_line = current_line[: column_start] + current_line[column_end :]
-            self.lines[line_start] = current_line
-            
-        else:
-            for line in range(line_end, line_start - 1, -1):
-                    # line at end index 
-                    if line == line_end:
-                        end_tail = self.lines[line][column_end:]
-                        self.lines.pop(line)
-                    # line at start index
-                    elif line == line_start:
-                        current_line = self.lines[line]
-                        current_line = current_line[: column_start] + end_tail
-                        self.lines[line] = current_line
-                    
-                    #else delete the whole line
-                    else:
-                        self.lines.pop(line)
-        self.normalize_cursor_position()
-        self.cursor_x_index = column_start
-        self.cursor_y_index = line_start
-        self.ctx.scroll.calculate_visible_lines()
-        self.ctx.scroll.keep_cursor_in_view()
-        self.clear_selection()
-    
-    def replace_selected_text(self, str):
-        self.delete_selected_text()
-        self.insert_at_cursor(str)
-    
-    def delete(self):
-        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
-            self.delete_selected_text()
-        else:
-            self.delete_at_cursor()
-    
-    def insert_str(self, str):
-        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
-            self.replace_selected_text(str)
-        else:
-            self.insert_at_cursor(str)
-    
-    def copy_text(self):
-        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
-            anchor_x, anchor_y = self.selection_index['anchor']
-        active_x, active_y = self.selection_index['active']
-        
-        #normalize start end index
-        line_start = min(anchor_y, active_y)
-        line_end   = max(anchor_y, active_y)
-        
-        if anchor_y == active_y:
-            column_start = min(anchor_x, active_x)
-            column_end   = max(anchor_x, active_x)
-        elif anchor_y < active_y:
-            column_start = anchor_x
-            column_end   = active_x
-        else:
-            column_start = active_x
-            column_end   = anchor_x
-        # add selected text from each line
-        copied_text = []
-        # selection in only 1 line
-        if line_start == line_end:
-            current_line = self.lines[line_start]
-            self.ctx.clipboard.copy(current_line[column_start : column_end])
-            return
-        for line in range(line_start, line_end + 1):
-                current_line = self.lines[line]
-                # line at start index
-                if line == line_start:
-                    copied_text.append(current_line[column_start :])
-                # line at end index 
-                elif line == line_end:
-                    copied_text.append(current_line[: column_end])
-                #else add the whole line
-                else:
-                    copied_text.append(current_line)
-        copied_text = "\n".join(copied_text)
-        self.ctx.clipboard.copy(copied_text)
-     
-    def paste_text(self): # TODO
-        if self.selection_index['anchor'] is not None and self.selection_index['active'] is not None:
-            self.delete_selected_text()
-        self.insert_at_cursor(self.ctx.clipboard.paste())
-        
-       
 class ScrollManager: 
     def __init__(self, ctx: EditorContext):
         self.ctx = ctx
@@ -602,6 +649,17 @@ class InputManager:
         self.ctx.renderer.render()
         return "break" 
     
+    def on_ctrl_z(self, event=None):
+        self.ctx.editor.command_manager.undo()
+        self.ctx.renderer.render()
+        return "break" 
+    
+    def on_ctrl_t(self, event=None):
+        insert = InsertCommand(self.ctx.document, "testing insert command")
+        self.ctx.editor.command_manager.execute(insert)
+        self.ctx.renderer.render()
+        return "break"
+        
     def on_mousewheel(self, event):
         if event.delta:
             self.ctx.scroll.move_scroll(-1 * (event.delta // 120) * self.ctx.renderer.line_height) 
